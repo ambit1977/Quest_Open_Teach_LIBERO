@@ -1,0 +1,5 @@
+# Packages missing from the existing PARC2026 LIBERO Python 3.10 environment.
+# Keep this intentionally small: ROS, RealSense, Franka and Isaac Gym are not
+# part of the Quest -> LIBERO simulation path.
+blosc==1.11.3
+pyzmq==27.1.0

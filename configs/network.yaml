@@ -1,4 +1,6 @@
-host_address: '172.24.71.206'
+# Bind/connect address for Open Teach processes. The macOS launcher sets this
+# to the active LAN address; localhost remains useful for offline smoke tests.
+host_address: ${oc.env:OPENTEACH_HOST,127.0.0.1}
 left_xarm_ip: '192.168.86.216'
 right_xarm_ip: '192.168.86.230'
 
@@ -40,5 +42,4 @@ cartesian_command_publisher_port: 8120
 cartesian_publisher_port_left: 8116
 joint_publisher_port_left: 8117
 cartesian_command_publisher_port_left: 8121
-
 

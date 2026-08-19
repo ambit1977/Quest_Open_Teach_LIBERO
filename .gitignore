@@ -28,3 +28,16 @@ urdf/*
 
 # Logs
 logs/*
+.venv/
+logs/
+demonstration_data/
+extracted_data/
+requirements-before-openteach.txt
+
+# Unity generated folders and local build output
+VR/*/Library/
+VR/*/Temp/
+VR/*/Obj/
+VR/*/Logs/
+VR/*/UserSettings/
+build/

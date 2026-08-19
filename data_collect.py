@@ -6,11 +6,21 @@ def main(configs):
     collector = Collector(configs, configs.demo_num)
     processes = collector.get_processes()
 
-    for process in processes:
-        process.start()
+    try:
+        for process in processes:
+            process.start()
 
-    for process in processes:
-        process.join()
+        for process in processes:
+            process.join()
+    except KeyboardInterrupt:
+        print("Stopping data collection processes...")
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+        for process in processes:
+            if process.pid is not None:
+                process.join(timeout=5)
 
 if __name__ == '__main__':
     main()

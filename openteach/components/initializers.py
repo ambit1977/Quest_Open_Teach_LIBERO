@@ -5,9 +5,44 @@ from .recorders.image import RGBImageRecorder, DepthImageRecorder, FishEyeImageR
 from .recorders.robot_state import RobotInformationRecord
 from .recorders.sim_state import SimInformationRecord
 from .recorders.sensors import XelaSensorRecorder
-from .sensors import *
 from multiprocessing import Process
 from openteach.constants import *
+
+
+def _stream_hydra_component(configs):
+    """Spawn-safe entry point used by macOS multiprocessing."""
+    component = hydra.utils.instantiate(configs)
+    component.stream()
+
+
+def _stream_sim_rgb_recorder(host, port, storage_path, cam_idx):
+    component = RGBImageRecorder(
+        host=host,
+        image_stream_port=port + cam_idx,
+        storage_path=storage_path,
+        filename='cam_{}_rgb_video'.format(cam_idx),
+        sim=True,
+    )
+    component.stream()
+
+
+def _stream_sim_depth_recorder(host, port, storage_path, cam_idx):
+    component = DepthImageRecorder(
+        host=host,
+        image_stream_port=port + cam_idx + DEPTH_PORT_OFFSET,
+        storage_path=storage_path,
+        filename='cam_{}_depth'.format(cam_idx),
+    )
+    component.stream()
+
+
+def _stream_sim_state_recorder(port_configs, recorder_function_key, storage_path):
+    component = SimInformationRecord(
+        port_configs=port_configs,
+        recorder_function_key=recorder_function_key,
+        storage_path=storage_path,
+    )
+    component.stream()
 
 
 
@@ -30,11 +65,17 @@ class RealsenseCameras(ProcessInstantiator):
     """
     def __init__(self, configs):
         super().__init__(configs)
+        # RealSense is not needed by LIBERO simulation. Import it only when a
+        # physical camera pipeline is explicitly requested so macOS simulation
+        # does not require pyrealsense2.
+        from .sensors.realsense import RealsenseCamera
+
+        self._camera_class = RealsenseCamera
         # Creating all the camera processes
         self._init_camera_processes()
 
     def _start_component(self, cam_idx):
-        component = RealsenseCamera(
+        component = self._camera_class(
             stream_configs = dict(
                 host = self.configs.host_address,
                 port = self.configs.cam_port_offset + cam_idx
@@ -60,12 +101,15 @@ class FishEyeCameras(ProcessInstantiator):
     """
     def __init__(self, configs):
         super().__init__(configs)
+        from .sensors.fish_eye_cam import FishEyeCamera
+
+        self._camera_class = FishEyeCamera
         # Creating all the camera processes
         self._init_camera_processes()
 
     def _start_component(self, cam_idx):
         print('cam_idx: {}, stream_oculus: {}'.format(cam_idx, True if self.configs.oculus_cam == cam_idx else False))
-        component = FishEyeCamera(
+        component = self._camera_class(
             cam_index=self.configs.fisheye_cam_numbers[cam_idx],
             stream_configs = dict(
                 host = self.configs.host_address,
@@ -115,7 +159,7 @@ class TeleOperator(ProcessInstantiator):
     #Function to start the detector component
     def _init_detector(self):
         self.processes.append(Process(
-            target = self._start_component,
+            target = _stream_hydra_component,
             args = (self.configs.robot.detector, )
         ))
 
@@ -123,7 +167,7 @@ class TeleOperator(ProcessInstantiator):
     def _init_sim_environment(self):
          for env_config in self.configs.robot.environment:
             self.processes.append(Process(
-                target = self._start_component,
+                target = _stream_hydra_component,
                 args = (env_config, )
             ))
 
@@ -131,7 +175,7 @@ class TeleOperator(ProcessInstantiator):
     def _init_keypoint_transform(self):
         for transform_config in self.configs.robot.transforms:
             self.processes.append(Process(
-                target = self._start_component,
+                target = _stream_hydra_component,
                 args = (transform_config, )
             ))
 
@@ -140,14 +184,14 @@ class TeleOperator(ProcessInstantiator):
        
         for visualizer_config in self.configs.robot.visualizers:
             self.processes.append(Process(
-                target = self._start_component,
+                target = _stream_hydra_component,
                 args = (visualizer_config, )
             ))
         # XELA visualizer
         if self.configs.run_xela:
             for visualizer_config in self.configs.xela_visualizers:
                 self.processes.append(Process(
-                    target = self._start_component,
+                    target = _stream_hydra_component,
                     args = (visualizer_config, )
                 ))
 
@@ -156,7 +200,7 @@ class TeleOperator(ProcessInstantiator):
         for operator_config in self.configs.robot.operators:
             
             self.processes.append(Process(
-                target = self._start_component,
+                target = _stream_hydra_component,
                 args = (operator_config, )
 
             ))
@@ -259,13 +303,23 @@ class Collector(ProcessInstantiator):
           
             for cam_idx in range(self.configs.num_cams):
                 self.processes.append(Process(
-                    target = self._start_rgb_component,
-                    args = (cam_idx, )
+                    target = _stream_sim_rgb_recorder,
+                    args = (
+                        self.configs.host_address,
+                        self.configs.sim_image_port,
+                        self._storage_path,
+                        cam_idx,
+                    )
                 ))
 
                 self.processes.append(Process(
-                    target = self._start_depth_component,
-                    args = (cam_idx, )
+                    target = _stream_sim_depth_recorder,
+                    args = (
+                        self.configs.host_address,
+                        self.configs.sim_image_port,
+                        self._storage_path,
+                        cam_idx,
+                    )
                 ))
 
     #Function to start the sim recorders
@@ -273,8 +327,8 @@ class Collector(ProcessInstantiator):
         port_configs = self.configs.robot.port_configs
         for key in self.configs.robot.recorded_data[0]:
             self.processes.append(Process(
-                        target = self._start_sim_component,
-                        args = (port_configs[0],key)))
+                        target = _stream_sim_state_recorder,
+                        args = (port_configs[0], key, self._storage_path)))
 
     #Function to start the xela sensor recorders
     def _start_xela_component(self,
@@ -338,8 +392,3 @@ class Collector(ProcessInstantiator):
                     target = self._start_robot_component,
                     args = (robot_controller_configs, key, )
                 ))
-
-
-    
-
-   

@@ -11,14 +11,16 @@ class OculusVRTwoHandDetector(Component):
                  oculus_left_port,
                  keypoint_pub_port, 
                  button_port, 
-                 button_publish_port
+                 button_publish_port,
+                 teleop_reset_port,
+                 teleop_reset_publish_port,
     ):
         self.notify_component_start('vr detector')
         # Initializing the network socket for getting the raw keypoints
         self.raw_keypoint_right_socket = create_pull_socket(host, oculus_right_port)
         # Initializing the network socket for resolution button feedback
         self.button_keypoint_socket = create_pull_socket(host, button_port)
-        #self.teleop_reset_socket = create_pull_socket(host, teleop_reset_port)
+        self.teleop_reset_socket = create_pull_socket(host, teleop_reset_port)
         self.raw_keypoint_left_socket= create_pull_socket(host, oculus_left_port)
 
         # ZMQ Keypoint publisher
@@ -32,6 +34,11 @@ class OculusVRTwoHandDetector(Component):
             host = host,
             port = button_publish_port
         ) 
+        self.teleop_reset_publisher = ZMQKeypointPublisher(
+            host=host,
+            port=teleop_reset_publish_port,
+        )
+        self._reset_was_pressed = False
         self.timer = FrequencyTimer(VR_FREQ)
 
 
@@ -76,6 +83,12 @@ class OculusVRTwoHandDetector(Component):
             topic_name = 'button'
         )
 
+    def _publish_reset_data(self, reset_requested):
+        self.teleop_reset_publisher.pub_keypoints(
+            keypoint_array=reset_requested,
+            topic_name='reset',
+        )
+
     # Function to publish the left/right hand keypoints and button Feedback 
     def stream(self):
 
@@ -87,6 +100,7 @@ class OculusVRTwoHandDetector(Component):
                 raw_right_keypoints = self.raw_keypoint_right_socket.recv()
                 raw_left_keypoints = self.raw_keypoint_left_socket.recv()
                 button_feedback = self.button_keypoint_socket.recv()
+                reset_feedback = self.teleop_reset_socket.recv()
 
                 if button_feedback==b'Low':
                     button_feedback_num = ARM_LOW_RESOLUTION
@@ -99,6 +113,12 @@ class OculusVRTwoHandDetector(Component):
                 self._publish_right_data(keypoint_right_dict)
                 self._publish_left_data(keypoint_left_dict)
                 self._publish_button_data(button_feedback_num)
+                reset_is_pressed = reset_feedback == b'Reset'
+                reset_requested = reset_is_pressed and not self._reset_was_pressed
+                if reset_requested:
+                    print('QUEST_RESET_BUTTON_RECEIVED', flush=True)
+                self._publish_reset_data(1 if reset_requested else 0)
+                self._reset_was_pressed = reset_is_pressed
                 self.timer.end_loop()
 
             except KeyboardInterrupt:
@@ -106,5 +126,7 @@ class OculusVRTwoHandDetector(Component):
 
         self.raw_keypoint_right_socket.close()
         self.raw_keypoint_left_socket.close()
+        self.teleop_reset_socket.close()
         self.hand_keypoint_publisher.stop()
+        self.teleop_reset_publisher.stop()
         print('Stopping the oculus keypoint extraction process.')

@@ -109,7 +109,7 @@ class SimInformationRecord(Recorder):
                     if self.recorder_function_key=='cartesian_states':
                         actual_endeff_coords=self.end_eff_coords_actual.recv_keypoints()
                     else:
-                        actual_endeff_coords=self.endeffector_pos_subscriber.recv_keypoints()
+                        commanded_endeff_coords=self.endeffector_pos_subscriber.recv_keypoints()
                
                 # timestamps= self.timestampsubscriber.recv_keypoints()
                 # proprio

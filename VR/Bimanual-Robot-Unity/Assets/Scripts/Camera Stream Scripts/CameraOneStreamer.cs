@@ -11,16 +11,24 @@ using System.Threading;
 public class CameraOneStreamer : MonoBehaviour
 {
     private Thread imageStreamer;
-    private static List<byte[]> imageList;
+    private Thread handImageStreamer;
+    private List<byte[]> imageList;
+    private List<byte[]> handImageList;
+    private readonly object imageLock = new object();
+    private readonly object handImageLock = new object();
 
     public RawImage image;
+    private RawImage handImage;
     private Texture2D texture;
+    private Texture2D handTexture;
 
     //public NetworkConfigs netConf;
     private bool connectionEstablished = false;
     private string communicationAddress;
+    private string handCommunicationAddress;
     private NetworkManager netConfig;
     private SubscriberSocket socket;
+    private SubscriberSocket handSocket;
 
     private void StartImageThread()
     {
@@ -32,8 +40,13 @@ public class CameraOneStreamer : MonoBehaviour
         {
             StartConnection();
             imageList = new List<byte[]>();
+            handImageList = new List<byte[]>();
             imageStreamer = new Thread(getRobotImage);
+            imageStreamer.IsBackground = true;
             imageStreamer.Start();
+            handImageStreamer = new Thread(getHandImage);
+            handImageStreamer.IsBackground = true;
+            handImageStreamer.Start();
         }
     }
 
@@ -44,6 +57,11 @@ public class CameraOneStreamer : MonoBehaviour
         socket.Options.ReceiveHighWatermark = 1000;
         socket.Connect(communicationAddress);
         socket.Subscribe("");
+        handCommunicationAddress = netConfig.getCamAddress(1);
+        handSocket = new SubscriberSocket();
+        handSocket.Options.ReceiveHighWatermark = 2;
+        handSocket.Connect(handCommunicationAddress);
+        handSocket.Subscribe("");
         connectionEstablished = true;
     }
 
@@ -52,13 +70,53 @@ public class CameraOneStreamer : MonoBehaviour
         while (true)
         {
             byte[] imageBytes = socket.ReceiveFrameBytes();
-            imageList.Add(imageBytes);
-
-            if (imageList.Count > 5)
+            lock (imageLock)
             {
-                imageList.RemoveAt(0);
+                imageList.Add(imageBytes);
+                if (imageList.Count > 2)
+                    imageList.RemoveAt(0);
             }
         }
+    }
+
+    private void getHandImage()
+    {
+        while (true)
+        {
+            byte[] imageBytes = handSocket.ReceiveFrameBytes();
+            lock (handImageLock)
+            {
+                handImageList.Add(imageBytes);
+                if (handImageList.Count > 2)
+                    handImageList.RemoveAt(0);
+            }
+        }
+    }
+
+    private void CreateHandCameraOverlay()
+    {
+        GameObject overlay = new GameObject(
+            "HandCameraOverlay",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(RawImage),
+            typeof(Outline));
+        overlay.transform.SetParent(image.transform.parent, false);
+        RectTransform rect = overlay.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = new Vector2(160f, 160f);
+        rect.anchoredPosition = new Vector2(230f, 90f);
+        handImage = overlay.GetComponent<RawImage>();
+        handImage.raycastTarget = false;
+        // Keep the camera's vertical correction and mirror it horizontally so
+        // hand motion matches the operator's screen-space intuition.
+        handImage.uvRect = new Rect(1f, 1f, -1f, -1f);
+        Outline outline = overlay.GetComponent<Outline>();
+        outline.effectColor = Color.white;
+        outline.effectDistance = new Vector2(4f, -4f);
+        overlay.transform.SetAsLastSibling();
     }
 
     public void Start()
@@ -70,6 +128,9 @@ public class CameraOneStreamer : MonoBehaviour
         // Initializing the image texture
         texture = new Texture2D(640, 360, TextureFormat.RGB24, false);
         image.texture = texture;
+        CreateHandCameraOverlay();
+        handTexture = new Texture2D(256, 256, TextureFormat.RGB24, false);
+        handImage.texture = handTexture;
     }
 
     public void Update()
@@ -80,8 +141,22 @@ public class CameraOneStreamer : MonoBehaviour
             if (String.Equals(communicationAddress, netConfig.getCamAddress()))
             {
                 // Getting the image from the queue and displaying it
-                byte[] imageBytes = imageList[imageList.Count - 1];
-                texture.LoadImage(imageBytes);
+                lock (imageLock)
+                {
+                    if (imageList.Count > 0)
+                    {
+                        texture.LoadImage(imageList[imageList.Count - 1]);
+                        imageList.Clear();
+                    }
+                }
+                lock (handImageLock)
+                {
+                    if (handImageList.Count > 0)
+                    {
+                        handTexture.LoadImage(handImageList[handImageList.Count - 1]);
+                        handImageList.Clear();
+                    }
+                }
             }
             else
             {

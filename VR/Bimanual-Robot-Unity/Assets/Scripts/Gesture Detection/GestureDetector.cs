@@ -41,6 +41,7 @@ class GestureDetector : MonoBehaviour
     private PushSocket rightclient;
     private PushSocket leftclient;
     private PushSocket client2;
+    private PushSocket resetclient;
     private string rightcommunicationAddress;
     private string leftcommunicationAddress;
     private string ResolutionAddress;
@@ -49,12 +50,18 @@ class GestureDetector : MonoBehaviour
     private bool leftconnectionEstablished = false;
     private bool rightconnectionEstablished = false;
     private bool resolutionconnectionEstablished = false;
+    private bool resetconnectionEstablished = false;
     private bool PauseEstablished = false;
     private bool resolutioncreated = false;
     private bool IsRightGripper = false;
     private bool IsLeftGripper = false;
     private bool PauseRight = false;
     private bool PauseLeft = false;
+    // Quest Touch controller mode. The controller poses are encoded as a
+    // stable virtual hand skeleton so the existing Open Teach wire protocol
+    // and Mac receiver can be reused unchanged.
+    private Transform trackingSpace;
+    private bool controllerPaused = true;
     // Starting the server connection
     public void CreateTCPConnection()
      {
@@ -75,6 +82,13 @@ class GestureDetector : MonoBehaviour
             leftclient = new PushSocket();
             leftclient.Connect(leftcommunicationAddress);
             leftconnectionEstablished = true;
+        }
+        string resetAddress = netConfig.getPauseAddress();
+        if (!String.Equals(resetAddress, "tcp://:"))
+        {
+            resetclient = new PushSocket();
+            resetclient.Connect(resetAddress);
+            resetconnectionEstablished = true;
         }
         // Setting color to green to indicate control
         if (rightconnectionEstablished && leftconnectionEstablished)
@@ -114,6 +128,18 @@ class GestureDetector : MonoBehaviour
     // Start function
     void Start()
      {
+        // This teleoperation view is intentionally fully immersive. Disable
+        // the passthrough layer and make every eye camera clear to opaque black.
+        if (OVRManager.instance != null)
+            OVRManager.instance.isInsightPassthroughEnabled = false;
+        if (PassthroughLayerManager != null)
+            PassthroughLayerManager.enabled = false;
+        foreach (Camera sceneCamera in Camera.allCameras)
+        {
+            sceneCamera.clearFlags = CameraClearFlags.SolidColor;
+            sceneCamera.backgroundColor = new Color(0.025f, 0.04f, 0.07f, 1f);
+        }
+
         // Getting the Network Config Updater gameobject
         GameObject netConfGameObject = GameObject.Find("NetworkConfigsLoader");
         netConfig = netConfGameObject.GetComponent<NetworkManager>();
@@ -123,6 +149,89 @@ class GestureDetector : MonoBehaviour
         // Initializing the hand skeleton
         RightHandFingerBones = new List<OVRBone>(RightHandSkeleton.Bones);
         LeftHandFingerBones = new List<OVRBone>(LeftHandSkeleton.Bones);   
+        GameObject trackingSpaceObject = GameObject.Find("TrackingSpace");
+        if (trackingSpaceObject != null)
+            trackingSpace = trackingSpaceObject.transform;
+    }
+
+    private List<Vector3> CreateControllerSkeleton(
+        OVRInput.Controller controller,
+        bool pausePressed,
+        bool gripperPressed)
+    {
+        Vector3 localPosition = OVRInput.GetLocalControllerPosition(controller);
+        Quaternion localRotation = OVRInput.GetLocalControllerRotation(controller);
+        Vector3 position = trackingSpace == null
+            ? localPosition
+            : trackingSpace.TransformPoint(localPosition);
+        Quaternion rotation = trackingSpace == null
+            ? localRotation
+            : trackingSpace.rotation * localRotation;
+
+        // Twenty-four points match OCULUS_NUM_KEYPOINTS. Index 0 is the
+        // controller origin. Knuckles 6 and 16 define a non-degenerate palm
+        // frame for the existing keypoint transform.
+        List<Vector3> points = new List<Vector3>(24);
+        for (int i = 0; i < 24; i++)
+            points.Add(position + rotation * new Vector3(0f, 0f, 0.035f));
+
+        points[0] = position;
+        points[6] = position + rotation * new Vector3(0.030f, 0f, 0.060f);
+        points[16] = position + rotation * new Vector3(-0.030f, 0f, 0.060f);
+
+        Vector3 thumbTip = position + rotation * new Vector3(0.025f, -0.010f, 0.040f);
+        points[19] = thumbTip;
+        points[21] = pausePressed
+            ? thumbTip
+            : position + rotation * new Vector3(0.000f, 0.015f, 0.095f);
+        points[22] = position + rotation * new Vector3(-0.015f, 0.015f, 0.090f);
+        points[23] = gripperPressed
+            ? thumbTip
+            : position + rotation * new Vector3(-0.035f, 0.010f, 0.075f);
+        return points;
+    }
+
+    private void SendControllerData()
+    {
+        bool pausePressed =
+            OVRInput.Get(OVRInput.Button.One, OVRInput.Controller.RTouch);
+        bool pausePressedDown =
+            OVRInput.GetDown(OVRInput.Button.One, OVRInput.Controller.RTouch);
+        bool resetPressed =
+            OVRInput.Get(OVRInput.Button.Two, OVRInput.Controller.RTouch) ||
+            OVRInput.Get(OVRInput.RawButton.B);
+        bool resetPressedDown =
+            OVRInput.GetDown(OVRInput.Button.Two, OVRInput.Controller.RTouch) ||
+            OVRInput.GetDown(OVRInput.RawButton.B);
+        bool gripperPressed =
+            OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, OVRInput.Controller.RTouch) > 0.75f;
+
+        if (pausePressedDown)
+            controllerPaused = !controllerPaused;
+        if (resetPressedDown)
+        {
+            controllerPaused = true;
+            Debug.Log("QUEST_RESET_BUTTON_DOWN");
+        }
+
+        List<Vector3> rightPoints = CreateControllerSkeleton(
+            OVRInput.Controller.RTouch, pausePressed, gripperPressed);
+        // LIBERO uses one arm. Keep sending a dummy left packet because the
+        // existing receiver expects both sockets, but do not require or use
+        // the left Touch controller.
+        List<Vector3> leftPoints = rightPoints;
+        rightclient.SendFrame("absolute:" + SerializeVector3List(rightPoints));
+        leftclient.SendFrame("absolute:" + SerializeVector3List(leftPoints));
+        client2.SendFrame("Low");
+        if (resetconnectionEstablished)
+            resetclient.SendFrame(resetPressed ? "Reset" : "None");
+
+        StreamBorder.color = gripperPressed
+            ? Color.yellow
+            : (controllerPaused ? Color.red : Color.green);
+        ToggleMenuButton(false);
+        ToggleResolutionButton(false);
+        WristTracker.SetActive(false);
     }
 
     // Function to serialize the Vector3 List
@@ -334,7 +443,17 @@ class GestureDetector : MonoBehaviour
     void Update()
     {
         if (rightconnectionEstablished && leftconnectionEstablished)
-        {   
+        {
+            bool rightTouchControllerConnected =
+                OVRInput.IsControllerConnected(OVRInput.Controller.RTouch);
+            if (rightTouchControllerConnected)
+            {
+                if (!resolutionconnectionEstablished)
+                    SendResolution();
+                SendControllerData();
+                return;
+            }
+
             SendResolution();
             if (String.Equals(rightcommunicationAddress, netConfig.getRightKeypointAddress())||String.Equals(leftcommunicationAddress, netConfig.getLeftKeypointAddress()))
             {    
@@ -343,16 +462,12 @@ class GestureDetector : MonoBehaviour
                 {
                     SendRightHandData("absolute");
                     SendLeftHandData("absolute");
-                    byte[] recievedleftToken = leftclient.ReceiveFrameBytes();
-                    byte[] recievedrightToken = rightclient.ReceiveFrameBytes();
                     ToggleResolutionButton(false);
                 }
                 if (StreamRelativeData)
                 {
                     SendRightHandData("relative");
                     SendLeftHandData("relative");
-                    byte[] recievedrightToken = rightclient.ReceiveFrameBytes();
-                    byte[] recievedleftToken = leftclient.ReceiveFrameBytes();
                     ToggleResolutionButton(false);    
                 }
 

@@ -9,6 +9,8 @@ detector:
   keypoint_pub_port: ${keypoint_port}
   button_port: ${resolution_button_port}
   button_publish_port: ${resolution_button_publish_port}
+  teleop_reset_port: ${teleop_reset_port}
+  teleop_reset_publish_port: ${teleop_reset_publish_port}
   
 
 
@@ -44,7 +46,8 @@ operators:
     endeff_publish_port: 10010
     endeffpossubscribeport: 10009
     robotposesubscribeport: 11111
-    moving_average_limit: 10
+    teleop_reset_port: ${teleop_reset_publish_port}
+    moving_average_limit: 3
     arm_resolution_port: ${resolution_button_publish_port} 
 
 
@@ -57,11 +60,12 @@ environment:
     endeff_publish_port: 10009
     endeffpossubscribeport: 10010
     robotposepublishport: 11111
+    teleop_reset_port: ${teleop_reset_publish_port}
     stream_oculus: true
     suite_name: libero_90
     # task_name: LIVING_ROOM_SCENE3_pick_up_the_cream_cheese_and_put_it_in_the_tray #KITCHEN_SCENE7_open_the_microwave
     # task_name: KITCHEN_SCENE3_put_the_moka_pot_on_the_stove
-    task_name: LIVING_ROOM_SCENE2_pick_up_the_alphabet_soup_and_put_it_in_the_basket
+    task_name: KITCHEN_SCENE1_open_the_top_drawer_of_the_cabinet_and_put_the_bowl_in_it
 
 
 port_configs:

@@ -70,6 +70,16 @@ public class NetworkManager : MonoBehaviour
             return "tcp://" + netConfig.IPAddress + ":" + netConfig.camPortNum;
     }
 
+    public string getCamAddress(int portOffset)
+    {
+        if (IPNotFound)
+            return "tcp://:";
+        int port;
+        if (!Int32.TryParse(netConfig.camPortNum, out port))
+            return "tcp://:";
+        return "tcp://" + netConfig.IPAddress + ":" + (port + portOffset);
+    }
+
     public string getGraphAddress()
     {
         if (IPNotFound)
@@ -153,6 +163,9 @@ public class NetworkManager : MonoBehaviour
 
         // Storing in the Oculus Player Preferences Dict
         PlayerPrefs.SetString("ipAddress", IPAddress);
+        // Persist immediately. Quest apps may be force-stopped or suspended
+        // without receiving Unity's normal application-quit callback.
+        PlayerPrefs.Save();
     }
 
    

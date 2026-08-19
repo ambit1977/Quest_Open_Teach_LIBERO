@@ -1,6 +1,7 @@
 import os
 import time
 import numpy as np
+import zmq
 from openteach.utils.timer import FrequencyTimer
 from openteach.utils.network import ZMQCameraPublisher, ZMQCompressedImageTransmitter,ZMQKeypointPublisher,ZMQKeypointSubscriber
 from openteach.components.environment.arm_env import Arm_Env
@@ -10,9 +11,7 @@ from openteach.utils.images import rescale_image
 import robosuite.utils.transform_utils as T
 from libero.libero import benchmark, get_libero_path
 
-from robosuite import load_controller_config
-import libero.libero.envs.bddl_utils as BDDLUtils
-from libero.libero.envs import *
+from libero.libero.envs import OffScreenRenderEnv
 
 # Libero Environment class 
 class LiberoEnv(Arm_Env):
@@ -23,6 +22,7 @@ class LiberoEnv(Arm_Env):
 			 endeff_publish_port,
 			 endeffpossubscribeport,
 			 robotposepublishport,
+			 teleop_reset_port,
 			 stream_oculus,
 			 suite_name,
 			 task_name,
@@ -53,6 +53,10 @@ class LiberoEnv(Arm_Env):
 				host = host,
 				port = camport + VIZ_PORT_OFFSET
 			)
+			self.rgb_viz_publisher_ego = ZMQCompressedImageTransmitter(
+				host = host,
+				port = camport + VIZ_PORT_OFFSET + 1
+			)
 		#Publisher for Depth data
 		self.depth_publisher = ZMQCameraPublisher(
 			host = host,
@@ -82,6 +86,11 @@ class LiberoEnv(Arm_Env):
 			host = host,
 			port = robotposepublishport
 		)
+		self.teleop_reset_subscriber = ZMQKeypointSubscriber(
+			host=host,
+			port=teleop_reset_port,
+			topic='reset',
+		)
 
 		#Publisher for timestamps
 		self.timestamp_publisher = ZMQKeypointPublisher(
@@ -102,31 +111,16 @@ class LiberoEnv(Arm_Env):
 		task_name = task.name
 		task_bddl_file = os.path.join(get_libero_path("bddl_files"), task.problem_folder, task.bddl_file)
 
-		# Get controller config
-		controller_config = load_controller_config(default_controller="OSC_POSE")
-
-		# Create argument configuration
-		config = {
-			"robots": ["Panda"],
-			"controller_configs": controller_config,
-		}
-
-		problem_info = BDDLUtils.get_problem_info(task_bddl_file)
-
-		# Create environment
-		problem_name = problem_info["problem_name"]
-		domain_name = problem_info["domain_name"]
-		language_instruction = problem_info["language_instruction"]
-
-		self.env = TASK_MAPPING[problem_name](
+		# LIBERO-plus adds view / robot-init parameters to its task classes.
+		# Its ControlEnv wrapper supplies compatible defaults while retaining the
+		# standard 7D OSC_POSE action interface expected by Open Teach.
+		self.env = OffScreenRenderEnv(
 			bddl_file_name=task_bddl_file,
-			**config,
-			has_renderer=True,
-			has_offscreen_renderer=False,
-			render_camera="agentview",
 			ignore_done=True,
-			use_camera_obs=False,
-			reward_shaping=True,
+			use_camera_obs=True,
+			camera_names=["agentview", "robot0_eye_in_hand"],
+			camera_heights=480,
+			camera_widths=480,
 			control_freq=20,
 		)
 		seed = np.random.randint(0, 100000)
@@ -137,7 +131,7 @@ class LiberoEnv(Arm_Env):
 	# Reset the environment
 	def reset(self):
 		self.obs = self.env.reset()
-		return self.env.get_robot_state_vector(self.obs) 
+		return self.get_endeff_position()
 
 	# Get the RGB and Depth Images
 	def get_rgb_depth_images(self, camera_name=None):
@@ -155,7 +149,11 @@ class LiberoEnv(Arm_Env):
 	
 	# Get the endeffector position
 	def get_endeff_position(self):
-		return self.env.get_robot_state_vector(self.obs) # [gripper_pos, eef_pos, eef_quat]
+		return np.concatenate([
+			self.obs["robot0_gripper_qpos"],
+			self.obs["robot0_eef_pos"],
+			self.obs["robot0_eef_quat"],
+		]) # [gripper_pos, eef_pos, eef_quat]
 			
 	@property              
 	def timer(self):
@@ -164,6 +162,7 @@ class LiberoEnv(Arm_Env):
 	# Take action
 	def take_action(self):
 		action = self.endeff_pos_subscriber.recv_keypoints()
+		action = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
 		self.obs, _, _, _ = self.env.step(action)                   
 
 	# Stream the environment
@@ -173,6 +172,10 @@ class LiberoEnv(Arm_Env):
 		while True:
 			#try:
 			self.timer.start_loop() 
+			reset_request = self.teleop_reset_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+			if reset_request is not None and int(np.asanyarray(reset_request).reshape(1)[0]) == 1:
+				print('QUEST_STAGE_RESET environment', flush=True)
+				self.reset()
 			#Get RGB Images and Depth Images
 			color_image,depth_image,timestamp=self.get_rgb_depth_images()
 			color_image_ego, depth_image_ego, timestamp_ego=self.get_rgb_depth_images(camera_name='robot0_eye_in_hand')
@@ -183,6 +186,7 @@ class LiberoEnv(Arm_Env):
 			#Set this to True        
 			if self._stream_oculus:
 				self.rgb_viz_publisher.send_image(rescale_image(color_image, 2)) # 128 * 128
+				self.rgb_viz_publisher_ego.send_image(rescale_image(color_image_ego, 2))
 
 			# Publishing the depth images
 			self.depth_publisher.pub_depth_image(depth_image, timestamp)

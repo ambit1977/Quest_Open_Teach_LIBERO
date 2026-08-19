@@ -1,3 +1,4 @@
+import os
 import sys
 import numpy as np
 from openteach.constants import *
@@ -118,11 +119,13 @@ class OculusThumbBoundCalibrator(object):
         sys.stdin = open(0) # To take inputs while spawning multiple processes
 
         if check_file(VR_THUMB_BOUNDS_PATH):
-            use_calibration_file = input("\nCalibration file already exists. Do you want to create a new one? Press y for Yes else press Enter")
+            use_calibration_file = os.environ.get("OPENTEACH_RECALIBRATE", "0")
 
-            if use_calibration_file == "y":
+            if use_calibration_file.lower() in {"1", "true", "yes", "y"}:
+                print("Recalibrating hand bounds (OPENTEACH_RECALIBRATE is enabled).")
                 thumb_index_bounds, thumb_middle_bounds, thumb_ring_bounds = self._calibrate()
             else:
+                print("Using existing hand calibration. Set OPENTEACH_RECALIBRATE=1 to replace it.")
                 calibrated_bounds = np.load(VR_THUMB_BOUNDS_PATH)
                 thumb_index_bounds = calibrated_bounds[:5]
                 thumb_middle_bounds = calibrated_bounds[5:10]

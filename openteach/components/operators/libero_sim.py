@@ -46,6 +46,7 @@ class LiberoSimOperator(Operator):
 		robotposesubscribeport,
 		moving_average_limit,
 		arm_resolution_port = None,
+		teleop_reset_port = None,
 	):
 		self.notify_component_start('libero operator')
 		self._host, self._port = host, transformed_keypoints_port
@@ -70,6 +71,7 @@ class LiberoSimOperator(Operator):
 		self.prev_gripper_flag=0
 		self.prev_pause_flag=0
 		self.pause_cnt=0
+		self.gripper_cnt=0
 
 
 		self._arm_resolution_subscriber = ZMQKeypointSubscriber(
@@ -96,6 +98,11 @@ class LiberoSimOperator(Operator):
 			port = robotposesubscribeport,
 			topic = 'robot_pose'
 		)
+		self.teleop_reset_subscriber = ZMQKeypointSubscriber(
+			host=host,
+			port=teleop_reset_port,
+			topic='reset',
+		)
 
 		# Calibrating to get the thumb bounds
 		self._calibrate_bounds()
@@ -115,6 +122,10 @@ class LiberoSimOperator(Operator):
 		self.moving_average_limit = moving_average_limit
 		self.hand_frames = []
 		self.count = 0
+		# Controller position is mapped one-to-one to the single LIBERO arm's
+		# end-effector target. Orientation is intentionally held fixed.
+		self.controller_position_gain = 1.8
+		self.position_servo_gain = 10.0
 
 	@property
 	def timer(self):
@@ -149,9 +160,11 @@ class LiberoSimOperator(Operator):
 	
 	# Get the resolution scale mode
 	def _get_resolution_scale_mode(self):
-		data = self._arm_resolution_subscriber.recv_keypoints()
-		res_scale = np.asanyarray(data).reshape(1)[0] # Make sure this data is one dimensional
-		return res_scale
+		data = self._arm_resolution_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+		if data is None:
+			return self.resolution_scale
+		mode = np.asanyarray(data).reshape(1)[0]
+		return 0.5 if mode == ARM_LOW_RESOLUTION else 1.0
 	
 	# Get Homogenous matrix from the frame
 	def _turn_frame_to_homo_mat(self, frame):
@@ -222,8 +235,7 @@ class LiberoSimOperator(Operator):
 		first_hand_frame = self._get_hand_frame()
 		while first_hand_frame is None:
 			first_hand_frame = self._get_hand_frame()
-		self.hand_init_H = self._turn_frame_to_homo_mat(first_hand_frame)
-		self.hand_init_t = copy(self.hand_init_H[:3, 3])
+		self.controller_init_position = copy(first_hand_frame[0])
 
 		self.is_first_frame = False
 
@@ -278,6 +290,20 @@ class LiberoSimOperator(Operator):
 
 	# Apply retargeted angles
 	def _apply_retargeted_angles(self, log=False):
+		reset_request = self.teleop_reset_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+		if reset_request is not None and int(np.asanyarray(reset_request).reshape(1)[0]) == 1:
+			print('QUEST_STAGE_RESET operator', flush=True)
+			self.pause_flag = 0
+			self.prev_pause_flag = 0
+			self.arm_teleop_state = ARM_TELEOP_STOP
+			self.is_first_frame = True
+			self.moving_Average_queue.clear()
+			self.end_eff_position_publisher.pub_keypoints(
+				np.zeros(7),
+				"endeff_coords",
+			)
+			return
+		self.resolution_scale = self._get_resolution_scale_mode()
 
 		# See if there is a reset in the teleop
 		new_arm_teleop_state,pause_status,pause_right = self._get_arm_teleop_state_from_hand_keypoints()
@@ -300,53 +326,47 @@ class LiberoSimOperator(Operator):
 		if moving_hand_frame is None: 
 			return # It means we are not on the arm mode yet instead of blocking it is directly returning
 		
-		self.hand_moving_H = self._turn_frame_to_homo_mat(moving_hand_frame)
+		# Map the controller to what the operator sees in LIBERO's fixed
+		# `agentview` camera, rather than to the robot-base axes. The columns
+		# are camera screen-right, screen-up, and forward-into-screen vectors
+		# expressed in the robot world frame. They come from MuJoCo's live
+		# agentview camera matrix for this task:
+		#   right = camera +X, up = camera +Y, into screen = camera -Z.
+		quest_to_robot = np.array([
+			[0.0, -0.52881497, -0.84873714],
+			[1.0, 0.0, 0.0],
+			[0.0, 0.84873714, -0.52881497],
+		])
+		controller_delta = moving_hand_frame[0] - self.controller_init_position
+		target_position = (
+			self.robot_init_H[:3, 3]
+			+ self.controller_position_gain * (quest_to_robot @ controller_delta)
+		)
 
-		# Transformation code
-		H_HI_HH = copy(self.hand_init_H) # Homo matrix that takes P_HI to P_HH - Point in Inital Hand Frame to Point in Home Hand Frame
-		H_HT_HH = copy(self.hand_moving_H) # Homo matrix that takes P_HT to P_HH
-		H_RI_RH = copy(self.robot_init_H) # Homo matrix that takes P_RI to P_RH
-
-		H_HT_HI = np.linalg.pinv(H_HI_HH) @ H_HT_HH # Homo matrix that takes P_HT to P_HI
-		
-		#####################################################################################
-		H_R_V= np.array([[0 , 0, 1, 0], 
-						[0 , 1, 0, 0],
-						[-1, 0, 0, 0],
-						[0, 0 ,0 , 1]])
-		H_T_V = np.array([[0, 0 ,1, 0],
-						 [0 ,1, 0, 0],
-						 [-1, 0, 0, 0],
-						[0, 0, 0, 1]])
-	
-		H_HT_HI_r=(np.linalg.pinv(H_R_V) @ H_HT_HI @ H_R_V)[:3,:3]
-		H_HT_HI_t=(np.linalg.pinv(H_T_V) @ H_HT_HI @ H_T_V)[:3,3]
-		
-		relative_affine = np.block(
-		[[ H_HT_HI_r,  H_HT_HI_t.reshape(3, 1)], [0, 0, 0, 1]])
-		
-		target_translation = H_RI_RH[:3,3] + relative_affine[:3,3]
-		target_rotation = H_RI_RH[:3, :3] @ relative_affine[:3,:3]
-		H_RT_RH = np.block(
-					[[target_rotation, target_translation.reshape(-1, 1)], [0, 0, 0, 1]])
-
-		curr_robot_pose = self.robot_moving_H
-		translation_scale = 50.0 
-		T_togo = H_RT_RH[:3, 3] #* translation_scale
-		R_togo = H_RT_RH[:3, :3]
-		# To use simulation arm with position control use T_togo, R_togo and convert this as a pose and publish as end effector pose and gripper state
-
-
-		# This part is to send relative pose as actions as Libero expects relative pose.
-		T_curr = curr_robot_pose[:3, 3]
-		R_curr = curr_robot_pose[:3, :3]
-		rel_pos = (T_togo - T_curr) * translation_scale
-		rel_rot = np.linalg.pinv(R_curr) @ R_togo
-		rel_axis_angle = R.from_matrix(rel_rot).as_rotvec()
-		rel_axis_angle = rel_axis_angle * 5.0 
-		
-		self.robot_moving_H = copy(H_RT_RH)
+		# LIBERO accepts relative OSC actions. Servo toward the absolute target
+		# using the actual current end-effector pose, rather than the previous
+		# controller target. This makes holding the controller still hold the
+		# arm at the corresponding XYZ point.
+		current_robot_frame = self.robot_pose_subscriber.recv_keypoints()
+		current_position = np.asanyarray(current_robot_frame)[2:5]
+		rel_pos = (
+			(target_position - current_position)
+			* self.position_servo_gain
+			* self.resolution_scale
+		)
+		rel_axis_angle = np.zeros(3)
 		action = np.concatenate([rel_pos, rel_axis_angle, [gripper_state]])
+
+		self.count += 1
+		if self.count % 30 == 0:
+			print(
+				"CONTROLLER_XYZ "
+				f"delta={controller_delta.round(3)} "
+				f"target={target_position.round(3)} "
+				f"current={current_position.round(3)} "
+				f"action={rel_pos.round(3)}",
+				flush=True,
+			)
 
 		averaged_action = moving_average(
 			action,
@@ -358,6 +378,3 @@ class LiberoSimOperator(Operator):
 			self.end_eff_position_publisher.pub_keypoints(averaged_action,"endeff_coords")
 		else:
 			self.end_eff_position_publisher.pub_keypoints(np.concatenate([np.zeros(6),[gripper_state]]),"endeff_coords")
-
-
-	
