@@ -127,6 +127,21 @@ The A button is the controller clutch/pause. Release the clutch and resume from
 a comfortable neutral pose before reaching for a new object. The B button
 requests a stage reset through the existing reset path.
 
+### Quest controller and telemetry display
+
+The controller build displays the tracked right Quest 2 Touch controller as a
+3D model. The legacy hand-skeleton graph is disabled in controller mode. The
+main robot-camera canvas is enlarged, and the eye-in-hand camera appears once
+as a mirrored inset on the right.
+
+The Panda joint HUD subscribes to `joint_angles` on TCP port 10012 and shows
+J1-J7 against their configured joint limits. Green indicates normal range,
+yellow indicates over 70 percent of a limit, and red indicates over 90 percent.
+
+Restarting only the Quest app does not reset MuJoCo. Restart the Mac teleop
+process or use the Quest stage-reset command to begin the task from its initial
+state.
+
 The repository already contains calibration bounds. To recalibrate using Quest
 2 hand geometry, start streaming first and then run:
 

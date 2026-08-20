@@ -1609,6 +1609,7 @@ MonoBehaviour:
   StreamBorder: {fileID: 1242621770}
   HighResolutionButtonController: {fileID: 633987599}
   LowResolutionButtonController: {fileID: 259715468}
+  RightControllerModelPrefab: {fileID: 112276, guid: d9809c5e8418bb047bf2c8ba1d1a2cec, type: 3}
 --- !u!4 &223974228
 Transform:
   m_ObjectHideFlags: 0

@@ -36,6 +36,7 @@ class GestureDetector : MonoBehaviour
     bool StreamResolution= true;
     public HighResolutionButtonController HighResolutionButtonController;
     public LowResolutionButtonController LowResolutionButtonController;
+    public GameObject RightControllerModelPrefab;
     // Network enablers
     private NetworkManager netConfig;
     private PushSocket rightclient;
@@ -62,6 +63,7 @@ class GestureDetector : MonoBehaviour
     // and Mac receiver can be reused unchanged.
     private Transform trackingSpace;
     private QuestTelemetryHud telemetryHud;
+    private GameObject rightControllerModel;
     private bool controllerPaused = true;
     // Starting the server connection
     public void CreateTCPConnection()
@@ -153,9 +155,36 @@ class GestureDetector : MonoBehaviour
         GameObject trackingSpaceObject = GameObject.Find("TrackingSpace");
         if (trackingSpaceObject != null)
             trackingSpace = trackingSpaceObject.transform;
+        GameObject legacyGraph = GameObject.Find("GraphCanvas");
+        if (legacyGraph != null)
+            legacyGraph.SetActive(false);
+        GameObject mainDisplay = GameObject.Find("CamOneCanvas");
+        if (mainDisplay != null)
+            mainDisplay.transform.localScale = new Vector3(0.18f, 0.18f, 0.18f);
+        if (RightControllerModelPrefab != null)
+        {
+            rightControllerModel = Instantiate(RightControllerModelPrefab);
+            rightControllerModel.name = "RightTouchControllerVisualizer";
+            rightControllerModel.transform.SetParent(trackingSpace, false);
+            OVRControllerHelper helper = rightControllerModel.GetComponent<OVRControllerHelper>();
+            if (helper != null)
+                helper.m_controller = OVRInput.Controller.RTouch;
+        }
         telemetryHud = gameObject.AddComponent<QuestTelemetryHud>();
         telemetryHud.host = netConfig.netConfig.IPAddress;
         telemetryHud.trackingSpace = trackingSpace;
+    }
+
+    private void UpdateControllerVisualizer()
+    {
+        if (rightControllerModel == null)
+            return;
+        rightControllerModel.transform.localPosition =
+            OVRInput.GetLocalControllerPosition(OVRInput.Controller.RTouch);
+        rightControllerModel.transform.localRotation =
+            OVRInput.GetLocalControllerRotation(OVRInput.Controller.RTouch);
+        rightControllerModel.SetActive(
+            OVRInput.IsControllerConnected(OVRInput.Controller.RTouch));
     }
 
     private List<Vector3> CreateControllerSkeleton(
@@ -446,6 +475,7 @@ class GestureDetector : MonoBehaviour
 
     void Update()
     {
+        UpdateControllerVisualizer();
         if (rightconnectionEstablished && leftconnectionEstablished)
         {
             bool rightTouchControllerConnected =

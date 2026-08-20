@@ -95,6 +95,12 @@ public class CameraOneStreamer : MonoBehaviour
 
     private void CreateHandCameraOverlay()
     {
+        GameObject existingOverlay = GameObject.Find("HandCameraOverlay");
+        if (existingOverlay != null)
+        {
+            handImage = existingOverlay.GetComponent<RawImage>();
+            return;
+        }
         GameObject overlay = new GameObject(
             "HandCameraOverlay",
             typeof(RectTransform),
@@ -106,8 +112,8 @@ public class CameraOneStreamer : MonoBehaviour
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(160f, 160f);
-        rect.anchoredPosition = new Vector2(230f, 90f);
+        rect.sizeDelta = new Vector2(190f, 190f);
+        rect.anchoredPosition = new Vector2(215f, 70f);
         handImage = overlay.GetComponent<RawImage>();
         handImage.raycastTarget = false;
         // Keep the camera's vertical correction and mirror it horizontally so
