@@ -11,7 +11,7 @@ public static class BuildControllerApk
     public static void Build()
     {
         const string packageName = "com.NYU.Bimanual.Controller";
-        const string productName = "Bimanual Controller";
+        const string productName = "Open Teach LIBERO Controller";
 
         PlayerSettings.productName = productName;
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, packageName);
