@@ -111,6 +111,10 @@ rotate the controller to control the end-effector orientation:
 - controller up/down tilt: Panda pitch
 - controller twist around its handle axis: Panda roll
 
+The receiver applies the Quest-to-Panda axis remap used by the current build:
+the observed hand-frame components are reordered as
+`[current roll, current pitch, current yaw] -> [Panda yaw, Panda pitch, Panda roll]`.
+
 The pose at the moment teleoperation starts (or resumes after a clutch) is the
 neutral pose. The Python operator receives the existing 3x3 hand frame produced
 by Unity, computes the relative rotation, and sends LIBERO's 7D OSC action

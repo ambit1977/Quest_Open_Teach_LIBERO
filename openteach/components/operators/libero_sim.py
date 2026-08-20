@@ -129,6 +129,10 @@ class LiberoSimOperator(Operator):
 		self.position_servo_gain = 10.0
 		self.controller_orientation_gain = 1.0
 		self.max_orientation_step = 0.12
+		# The received hand-frame axes are ordered differently from the
+		# Panda yaw/pitch/roll convention observed in the Quest view. Remap
+		# [current roll, current pitch, current yaw] to [yaw, pitch, roll].
+		self.controller_rotation_axis_order = (2, 0, 1)
 
 	@property
 	def timer(self):
@@ -371,6 +375,7 @@ class LiberoSimOperator(Operator):
 		target_rotation = self.robot_init_H[:3, :3] @ hand_delta_rotation
 		rel_rotation = target_rotation @ current_robot_H[:3, :3].T
 		rel_axis_angle = Rotation.from_matrix(rel_rotation).as_rotvec()
+		rel_axis_angle = rel_axis_angle[list(self.controller_rotation_axis_order)]
 		rel_axis_angle *= self.controller_orientation_gain
 		angle = np.linalg.norm(rel_axis_angle)
 		if angle > self.max_orientation_step:
