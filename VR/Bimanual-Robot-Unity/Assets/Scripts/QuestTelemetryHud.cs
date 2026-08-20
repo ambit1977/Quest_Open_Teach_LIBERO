@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Globalization;
 using System.Threading;
 using NetMQ;
@@ -23,8 +24,20 @@ public class QuestTelemetryHud : MonoBehaviour
     private readonly float[] lowerLimits = { -2.8973f, -1.7628f, -2.8973f, -3.0718f, -2.8973f, -0.0175f, -2.8973f };
     private readonly float[] upperLimits = {  2.8973f,  1.7628f,  2.8973f, -0.0698f,  2.8973f,  3.7525f,  2.8973f };
 
-    private void Start()
+    private IEnumerator Start()
     {
+        // NetworkManager loads PlayerPrefs in its own Start(). Waiting one
+        // frame prevents this component from capturing the scene's empty,
+        // pre-load IP value due to Unity's undefined Start ordering.
+        yield return null;
+        GameObject configObject = GameObject.Find("NetworkConfigsLoader");
+        if (configObject != null)
+        {
+            NetworkManager manager = configObject.GetComponent<NetworkManager>();
+            if (manager != null && manager.netConfig != null &&
+                !String.IsNullOrWhiteSpace(manager.netConfig.IPAddress))
+                host = manager.netConfig.IPAddress;
+        }
         AsyncIO.ForceDotNet.Force();
         receiverRunning = true;
         receiverThread = new Thread(ReceiveFrames) { IsBackground = true };
@@ -38,9 +51,9 @@ public class QuestTelemetryHud : MonoBehaviour
         var canvasObject = new GameObject("PandaJointLimitHUD");
         Transform view = Camera.main != null ? Camera.main.transform : trackingSpace;
         canvasObject.transform.SetParent(view, false);
-        canvasObject.transform.localPosition = new Vector3(-0.19f, 0.02f, 0.32f);
+        canvasObject.transform.localPosition = new Vector3(-0.23f, 0.08f, 0.55f);
         canvasObject.transform.localRotation = Quaternion.identity;
-        canvasObject.transform.localScale = Vector3.one * 0.001f;
+        canvasObject.transform.localScale = Vector3.one * 0.0005f;
         var canvas = canvasObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.overrideSorting = true;
@@ -50,7 +63,7 @@ public class QuestTelemetryHud : MonoBehaviour
         var panel = canvasObject.AddComponent<Image>();
         panel.color = new Color(0.02f, 0.03f, 0.06f, 0.82f);
         var rect = canvasObject.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(330f, 410f);
+        rect.sizeDelta = new Vector2(300f, 360f);
 
         labels = new TextMeshProUGUI[7];
         fills = new Image[7];
@@ -65,6 +78,7 @@ public class QuestTelemetryHud : MonoBehaviour
             var label = row.AddComponent<TextMeshProUGUI>();
             label.fontSize = 28;
             label.color = Color.white;
+            label.fontMaterial.SetColor("_FaceColor", Color.white);
             label.text = $"J{i + 1} 0.00  [{lowerLimits[i]:0.0}, {upperLimits[i]:0.0}]";
             labels[i] = label;
             var fillObject = new GameObject("Fill");
