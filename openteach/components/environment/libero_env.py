@@ -135,6 +135,7 @@ class LiberoEnv(Arm_Env):
 		self.env.seed(seed)
 		position = self.reset()
 		self.robot_pose_publisher.pub_keypoints(position, 'robot_pose')
+		self.publish_joint_angles()
 		
 	# Reset the environment
 	def reset(self):
@@ -162,6 +163,13 @@ class LiberoEnv(Arm_Env):
 			self.obs["robot0_eef_pos"],
 			self.obs["robot0_eef_quat"],
 		]) # [gripper_pos, eef_pos, eef_quat]
+
+	def publish_joint_angles(self):
+		joint_angles = np.asarray(self.env.sim.data.qpos[:7], dtype=np.float32)
+		self.joint_angles_publisher.pub_keypoints(joint_angles, 'joint_angles')
+		self.joint_angles_json_socket.send_string(
+			'joint_angles ' + json.dumps(joint_angles.tolist())
+		)
 			
 	@property              
 	def timer(self):
@@ -169,7 +177,13 @@ class LiberoEnv(Arm_Env):
 	   			
 	# Take action
 	def take_action(self):
-		action = self.endeff_pos_subscriber.recv_keypoints()
+		action = None
+		while action is None:
+			action = self.endeff_pos_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+			if action is None:
+				# Keep the Quest HUD alive while waiting for the first controller action.
+				self.publish_joint_angles()
+				time.sleep(0.05)
 		action = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
 		self.obs, _, _, _ = self.env.step(action)                   
 
@@ -206,17 +220,15 @@ class LiberoEnv(Arm_Env):
 			self.endeff_publisher.pub_keypoints(position,'endeff_coords')
 
 
+			# Publish joint telemetry before waiting for the next Quest action.
+			self.publish_joint_angles()
+
 			#Takes Action
 			self.take_action()
 
 			# Publish robot pose
 			position = self.get_endeff_position()
 			self.robot_pose_publisher.pub_keypoints(position, 'robot_pose')
-			joint_angles = np.asarray(self.env.sim.data.qpos[:7], dtype=np.float32)
-			self.joint_angles_publisher.pub_keypoints(joint_angles, 'joint_angles')
-			self.joint_angles_json_socket.send_string(
-				'joint_angles ' + json.dumps(joint_angles.tolist())
-			)
 
 			self.timer.end_loop()
 
