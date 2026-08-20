@@ -21,7 +21,8 @@ class LiberoEnv(Arm_Env):
 			 timestamppublisherport,
 			 endeff_publish_port,
 			 endeffpossubscribeport,
-			 robotposepublishport,
+				 robotposepublishport,
+				 actualjointanglespublishport,
 			 teleop_reset_port,
 			 stream_oculus,
 			 suite_name,
@@ -85,6 +86,10 @@ class LiberoEnv(Arm_Env):
 		self.robot_pose_publisher = ZMQKeypointPublisher(
 			host = host,
 			port = robotposepublishport
+		)
+		self.joint_angles_publisher = ZMQKeypointPublisher(
+			host=host,
+			port=actualjointanglespublishport,
 		)
 		self.teleop_reset_subscriber = ZMQKeypointSubscriber(
 			host=host,
@@ -204,6 +209,10 @@ class LiberoEnv(Arm_Env):
 			# Publish robot pose
 			position = self.get_endeff_position()
 			self.robot_pose_publisher.pub_keypoints(position, 'robot_pose')
+			self.joint_angles_publisher.pub_keypoints(
+				np.asarray(self.env.sim.data.qpos[:7], dtype=np.float32),
+				'joint_angles',
+			)
 
 			self.timer.end_loop()
 

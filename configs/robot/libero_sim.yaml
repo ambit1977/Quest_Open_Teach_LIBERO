@@ -60,6 +60,7 @@ environment:
     endeff_publish_port: 10009
     endeffpossubscribeport: 10010
     robotposepublishport: 11111
+    actualjointanglespublishport: 10011
     teleop_reset_port: ${teleop_reset_publish_port}
     stream_oculus: true
     suite_name: libero_90
