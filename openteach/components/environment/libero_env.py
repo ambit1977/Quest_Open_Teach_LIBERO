@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import zmq
+import json
 from openteach.utils.timer import FrequencyTimer
 from openteach.utils.network import ZMQCameraPublisher, ZMQCompressedImageTransmitter,ZMQKeypointPublisher,ZMQKeypointSubscriber
 from openteach.components.environment.arm_env import Arm_Env
@@ -91,6 +92,8 @@ class LiberoEnv(Arm_Env):
 			host=host,
 			port=actualjointanglespublishport,
 		)
+		self.joint_angles_json_socket = zmq.Context.instance().socket(zmq.PUB)
+		self.joint_angles_json_socket.bind(f'tcp://{host}:10012')
 		self.teleop_reset_subscriber = ZMQKeypointSubscriber(
 			host=host,
 			port=teleop_reset_port,
@@ -209,9 +212,10 @@ class LiberoEnv(Arm_Env):
 			# Publish robot pose
 			position = self.get_endeff_position()
 			self.robot_pose_publisher.pub_keypoints(position, 'robot_pose')
-			self.joint_angles_publisher.pub_keypoints(
-				np.asarray(self.env.sim.data.qpos[:7], dtype=np.float32),
-				'joint_angles',
+			joint_angles = np.asarray(self.env.sim.data.qpos[:7], dtype=np.float32)
+			self.joint_angles_publisher.pub_keypoints(joint_angles, 'joint_angles')
+			self.joint_angles_json_socket.send_string(
+				'joint_angles ' + json.dumps(joint_angles.tolist())
 			)
 
 			self.timer.end_loop()
