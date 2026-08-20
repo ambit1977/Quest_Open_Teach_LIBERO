@@ -372,10 +372,16 @@ class LiberoSimOperator(Operator):
 		# anchored to the pose seen when teleoperation starts.
 		current_hand_rotation = self._turn_frame_to_homo_mat(moving_hand_frame)[:3, :3]
 		hand_delta_rotation = current_hand_rotation @ self.controller_init_rotation.T
-		target_rotation = self.robot_init_H[:3, :3] @ hand_delta_rotation
+		# Apply the Quest/Panda axis permutation to the delta before building
+		# the target rotation. Permuting the final servo error instead would
+		# leave a persistent error on the wrong Panda axis and cause drift even
+		# while the controller is motionless.
+		hand_delta_rotvec = Rotation.from_matrix(hand_delta_rotation).as_rotvec()
+		mapped_delta_rotvec = hand_delta_rotvec[list(self.controller_rotation_axis_order)]
+		mapped_delta_rotation = Rotation.from_rotvec(mapped_delta_rotvec).as_matrix()
+		target_rotation = self.robot_init_H[:3, :3] @ mapped_delta_rotation
 		rel_rotation = target_rotation @ current_robot_H[:3, :3].T
 		rel_axis_angle = Rotation.from_matrix(rel_rotation).as_rotvec()
-		rel_axis_angle = rel_axis_angle[list(self.controller_rotation_axis_order)]
 		rel_axis_angle *= self.controller_orientation_gain
 		angle = np.linalg.norm(rel_axis_angle)
 		if angle > self.max_orientation_step:
