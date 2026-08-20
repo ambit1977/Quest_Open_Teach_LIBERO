@@ -122,10 +122,13 @@ class LiberoSimOperator(Operator):
 		self.moving_average_limit = moving_average_limit
 		self.hand_frames = []
 		self.count = 0
-		# Controller position is mapped one-to-one to the single LIBERO arm's
-		# end-effector target. Orientation is intentionally held fixed.
+		# Controller position and orientation are mapped to the single LIBERO
+		# arm's end-effector target. The Quest controller rotation is already
+		# represented by the 3x3 hand frame received from Unity.
 		self.controller_position_gain = 1.8
 		self.position_servo_gain = 10.0
+		self.controller_orientation_gain = 1.0
+		self.max_orientation_step = 0.12
 
 	@property
 	def timer(self):
@@ -236,6 +239,9 @@ class LiberoSimOperator(Operator):
 		while first_hand_frame is None:
 			first_hand_frame = self._get_hand_frame()
 		self.controller_init_position = copy(first_hand_frame[0])
+		self.controller_init_rotation = copy(
+			self._turn_frame_to_homo_mat(first_hand_frame)[:3, :3]
+		)
 
 		self.is_first_frame = False
 
@@ -348,20 +354,35 @@ class LiberoSimOperator(Operator):
 		# controller target. This makes holding the controller still hold the
 		# arm at the corresponding XYZ point.
 		current_robot_frame = self.robot_pose_subscriber.recv_keypoints()
-		current_position = np.asanyarray(current_robot_frame)[2:5]
+		current_robot_frame = np.asanyarray(current_robot_frame)
+		current_robot_H = self.cart2homo(current_robot_frame[2:])
+		current_position = current_robot_H[:3, 3]
 		rel_pos = (
 			(target_position - current_position)
 			* self.position_servo_gain
 			* self.resolution_scale
 		)
-		rel_axis_angle = np.zeros(3)
+		# Convert controller rotation relative to the clutch/start pose into a
+		# target Panda orientation. The relative rotation is applied in the
+		# robot's initial end-effector frame, so yaw/pitch/roll all remain
+		# anchored to the pose seen when teleoperation starts.
+		current_hand_rotation = self._turn_frame_to_homo_mat(moving_hand_frame)[:3, :3]
+		hand_delta_rotation = current_hand_rotation @ self.controller_init_rotation.T
+		target_rotation = self.robot_init_H[:3, :3] @ hand_delta_rotation
+		rel_rotation = target_rotation @ current_robot_H[:3, :3].T
+		rel_axis_angle = Rotation.from_matrix(rel_rotation).as_rotvec()
+		rel_axis_angle *= self.controller_orientation_gain
+		angle = np.linalg.norm(rel_axis_angle)
+		if angle > self.max_orientation_step:
+			rel_axis_angle *= self.max_orientation_step / angle
 		action = np.concatenate([rel_pos, rel_axis_angle, [gripper_state]])
 
 		self.count += 1
 		if self.count % 30 == 0:
 			print(
-				"CONTROLLER_XYZ "
+				"CONTROLLER_POSE "
 				f"delta={controller_delta.round(3)} "
+				f"rotvec={rel_axis_angle.round(3)} "
 				f"target={target_position.round(3)} "
 				f"current={current_position.round(3)} "
 				f"action={rel_pos.round(3)}",

@@ -101,6 +101,28 @@ Quest Bimanual controls from the upstream application:
 - Pinky pinch: open/close gripper.
 - Low/High resolution in the app changes translation scale.
 
+### Touch controller pose control
+
+The Quest 2 Touch controller is used as a single virtual hand for the LIBERO
+Panda arm. Move the controller to control the end-effector XYZ position and
+rotate the controller to control the end-effector orientation:
+
+- controller left/right turn: Panda yaw
+- controller up/down tilt: Panda pitch
+- controller twist around its handle axis: Panda roll
+
+The pose at the moment teleoperation starts (or resumes after a clutch) is the
+neutral pose. The Python operator receives the existing 3x3 hand frame produced
+by Unity, computes the relative rotation, and sends LIBERO's 7D OSC action
+`[dx, dy, dz, dRx, dRy, dRz, gripper]`. Translation and rotation are filtered
+and the per-frame rotation step is limited for safety. If orientation feels
+too slow or too fast, adjust `controller_orientation_gain` and
+`max_orientation_step` in `openteach/components/operators/libero_sim.py`.
+
+The A button is the controller clutch/pause. Release the clutch and resume from
+a comfortable neutral pose before reaching for a new object. The B button
+requests a stage reset through the existing reset path.
+
 The repository already contains calibration bounds. To recalibrate using Quest
 2 hand geometry, start streaming first and then run:
 
