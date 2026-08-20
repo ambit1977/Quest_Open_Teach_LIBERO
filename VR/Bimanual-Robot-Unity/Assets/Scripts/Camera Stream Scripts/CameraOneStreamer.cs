@@ -105,8 +105,7 @@ public class CameraOneStreamer : MonoBehaviour
             "HandCameraOverlay",
             typeof(RectTransform),
             typeof(CanvasRenderer),
-            typeof(RawImage),
-            typeof(Outline));
+            typeof(RawImage));
         overlay.transform.SetParent(image.transform.parent, false);
         RectTransform rect = overlay.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -119,9 +118,6 @@ public class CameraOneStreamer : MonoBehaviour
         // Keep the camera's vertical correction and mirror it horizontally so
         // hand motion matches the operator's screen-space intuition.
         handImage.uvRect = new Rect(1f, 1f, -1f, -1f);
-        Outline outline = overlay.GetComponent<Outline>();
-        outline.effectColor = Color.white;
-        outline.effectDistance = new Vector2(4f, -4f);
         overlay.transform.SetAsLastSibling();
     }
 

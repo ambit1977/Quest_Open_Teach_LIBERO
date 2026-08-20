@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading;
 using NetMQ;
 using NetMQ.Sockets;
 using TMPro;
@@ -11,7 +12,10 @@ public class QuestTelemetryHud : MonoBehaviour
     public string host = "192.168.1.18";
     public int port = 10012;
     public Transform trackingSpace;
-    private SubscriberSocket subscriber;
+    private Thread receiverThread;
+    private readonly object frameLock = new object();
+    private string latestFrame;
+    private bool receiverRunning;
     private TextMeshProUGUI[] labels;
     private Image[] fills;
     private float[] angles = new float[7];
@@ -22,9 +26,9 @@ public class QuestTelemetryHud : MonoBehaviour
     private void Start()
     {
         AsyncIO.ForceDotNet.Force();
-        subscriber = new SubscriberSocket();
-        subscriber.Connect($"tcp://{host}:{port}");
-        subscriber.Subscribe("joint_angles");
+        receiverRunning = true;
+        receiverThread = new Thread(ReceiveFrames) { IsBackground = true };
+        receiverThread.Start();
         BuildHud();
         Debug.Log($"QUEST_HUD_READY tcp://{host}:{port}");
     }
@@ -34,11 +38,13 @@ public class QuestTelemetryHud : MonoBehaviour
         var canvasObject = new GameObject("PandaJointLimitHUD");
         Transform view = Camera.main != null ? Camera.main.transform : trackingSpace;
         canvasObject.transform.SetParent(view, false);
-        canvasObject.transform.localPosition = new Vector3(-0.34f, 0.04f, 0.72f);
+        canvasObject.transform.localPosition = new Vector3(-0.19f, 0.02f, 0.32f);
         canvasObject.transform.localRotation = Quaternion.identity;
         canvasObject.transform.localScale = Vector3.one * 0.001f;
         var canvas = canvasObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 100;
         canvasObject.AddComponent<CanvasScaler>().dynamicPixelsPerUnit = 10;
         canvasObject.AddComponent<GraphicRaycaster>();
         var panel = canvasObject.AddComponent<Image>();
@@ -73,19 +79,50 @@ public class QuestTelemetryHud : MonoBehaviour
         }
     }
 
+    private void ReceiveFrames()
+    {
+        SubscriberSocket socket = null;
+        try
+        {
+            socket = new SubscriberSocket();
+            socket.Options.ReceiveHighWatermark = 2;
+            socket.Connect($"tcp://{host}:{port}");
+            socket.Subscribe("joint_angles");
+            while (receiverRunning)
+            {
+                if (socket.TryReceiveFrameString(TimeSpan.FromMilliseconds(100), out string frame))
+                {
+                    lock (frameLock)
+                        latestFrame = frame;
+                }
+            }
+        }
+        finally
+        {
+            socket?.Dispose();
+        }
+    }
+
     private void Update()
     {
-        if (subscriber == null) return;
-        while (subscriber.TryReceiveFrameString(TimeSpan.Zero, out string frame))
+        string frame = null;
+        lock (frameLock)
+        {
+            frame = latestFrame;
+            latestFrame = null;
+        }
+        if (!String.IsNullOrEmpty(frame))
         {
             var separator = frame.IndexOf(' ');
-            if (separator < 0) continue;
-            var values = frame.Substring(separator + 1).Trim('[', ']').Split(',');
-            for (int i = 0; i < Math.Min(7, values.Length); i++)
-                float.TryParse(values[i], NumberStyles.Float, CultureInfo.InvariantCulture, out angles[i]);
-            receivedFrames++;
-            if (receivedFrames == 1)
-                Debug.Log("QUEST_HUD_FIRST_JOINT_FRAME");
+            if (separator >= 0)
+            {
+                var values = frame.Substring(separator + 1).Trim('[', ']').Split(',');
+                for (int i = 0; i < Math.Min(7, values.Length); i++)
+                    float.TryParse(values[i], NumberStyles.Float, CultureInfo.InvariantCulture, out angles[i]);
+                receivedFrames++;
+                if (receivedFrames == 1)
+                    Debug.Log("QUEST_HUD_FIRST_JOINT_FRAME");
+            }
         }
         if (labels == null) return;
         for (int i = 0; i < 7; i++)
@@ -100,7 +137,9 @@ public class QuestTelemetryHud : MonoBehaviour
 
     private void OnDestroy()
     {
-        subscriber?.Dispose();
+        receiverRunning = false;
+        if (receiverThread != null && receiverThread.IsAlive)
+            receiverThread.Join(250);
         NetMQConfig.Cleanup(false);
     }
 }
