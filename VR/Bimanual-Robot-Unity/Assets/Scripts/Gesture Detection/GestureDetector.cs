@@ -61,6 +61,7 @@ class GestureDetector : MonoBehaviour
     // stable virtual hand skeleton so the existing Open Teach wire protocol
     // and Mac receiver can be reused unchanged.
     private Transform trackingSpace;
+    private QuestTelemetryHud telemetryHud;
     private bool controllerPaused = true;
     // Starting the server connection
     public void CreateTCPConnection()
@@ -152,6 +153,9 @@ class GestureDetector : MonoBehaviour
         GameObject trackingSpaceObject = GameObject.Find("TrackingSpace");
         if (trackingSpaceObject != null)
             trackingSpace = trackingSpaceObject.transform;
+        telemetryHud = gameObject.AddComponent<QuestTelemetryHud>();
+        telemetryHud.host = netConfig.netConfig.IPAddress;
+        telemetryHud.trackingSpace = trackingSpace;
     }
 
     private List<Vector3> CreateControllerSkeleton(
