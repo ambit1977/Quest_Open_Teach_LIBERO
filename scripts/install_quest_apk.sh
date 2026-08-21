@@ -5,8 +5,8 @@ set -eu
 SCRIPT_PATH=${(%):-%N}
 SCRIPT_DIR=${SCRIPT_PATH:A:h}
 PROJECT_DIR=${SCRIPT_DIR:h}
-APK="$PROJECT_DIR/VR/APK/BimanualArm.apk"
-PACKAGE=com.NYU.Bimanual
+APK="$PROJECT_DIR/build/BimanualController.apk"
+PACKAGE=com.NYU.Bimanual.Controller
 
 if ! command -v adb >/dev/null 2>&1; then
   print -u2 "adb is missing. Install it with: brew install --cask android-platform-tools"

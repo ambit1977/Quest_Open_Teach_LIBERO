@@ -2,6 +2,7 @@ from openteach.constants import VR_FREQ,  ARM_LOW_RESOLUTION, ARM_HIGH_RESOLUTIO
 from openteach.components import Component
 from openteach.utils.timer import FrequencyTimer
 from openteach.utils.network import create_pull_socket, ZMQKeypointPublisher
+import zmq
 
 # This class is used to detect the hand keypoints from the VR and publish them.            
 class OculusVRTwoHandDetector(Component):
@@ -14,14 +15,20 @@ class OculusVRTwoHandDetector(Component):
                  button_publish_port,
                  teleop_reset_port,
                  teleop_reset_publish_port,
+                 single_controller=False,
     ):
         self.notify_component_start('vr detector')
         # Initializing the network socket for getting the raw keypoints
         self.raw_keypoint_right_socket = create_pull_socket(host, oculus_right_port)
         # Initializing the network socket for resolution button feedback
-        self.button_keypoint_socket = create_pull_socket(host, button_port)
+        self.single_controller = single_controller
+        self.button_keypoint_socket = (
+            None if single_controller else create_pull_socket(host, button_port)
+        )
         self.teleop_reset_socket = create_pull_socket(host, teleop_reset_port)
-        self.raw_keypoint_left_socket= create_pull_socket(host, oculus_left_port)
+        self.raw_keypoint_left_socket = (
+            None if single_controller else create_pull_socket(host, oculus_left_port)
+        )
 
         # ZMQ Keypoint publisher
         self.hand_keypoint_publisher = ZMQKeypointPublisher(
@@ -38,7 +45,6 @@ class OculusVRTwoHandDetector(Component):
             host=host,
             port=teleop_reset_publish_port,
         )
-        self._reset_was_pressed = False
         self.timer = FrequencyTimer(VR_FREQ)
 
 
@@ -98,34 +104,45 @@ class OculusVRTwoHandDetector(Component):
 
                 # Getting the raw keypoints
                 raw_right_keypoints = self.raw_keypoint_right_socket.recv()
-                raw_left_keypoints = self.raw_keypoint_left_socket.recv()
-                button_feedback = self.button_keypoint_socket.recv()
-                reset_feedback = self.teleop_reset_socket.recv()
-
-                if button_feedback==b'Low':
-                    button_feedback_num = ARM_LOW_RESOLUTION
-                else:
-                    button_feedback_num = ARM_HIGH_RESOLUTION
-
-                # Processing the keypoints and publishing them
                 keypoint_right_dict = self._extract_data_from_token(raw_right_keypoints)
-                keypoint_left_dict = self._extract_data_from_token(raw_left_keypoints)
                 self._publish_right_data(keypoint_right_dict)
-                self._publish_left_data(keypoint_left_dict)
-                self._publish_button_data(button_feedback_num)
-                reset_is_pressed = reset_feedback == b'Reset'
-                reset_requested = reset_is_pressed and not self._reset_was_pressed
-                if reset_requested:
-                    print('QUEST_RESET_BUTTON_RECEIVED', flush=True)
-                self._publish_reset_data(1 if reset_requested else 0)
-                self._reset_was_pressed = reset_is_pressed
+
+                if self.single_controller:
+                    # B is sent as an edge event. Poll it without making the
+                    # 60 Hz pose path wait for a separate status packet.
+                    try:
+                        reset_feedback = self.teleop_reset_socket.recv(zmq.NOBLOCK)
+                    except zmq.Again:
+                        reset_feedback = None
+                    if reset_feedback == b'Reset':
+                        print('QUEST_RESET_BUTTON_RECEIVED', flush=True)
+                        self._publish_reset_data(1)
+                else:
+                    raw_left_keypoints = self.raw_keypoint_left_socket.recv()
+                    button_feedback = self.button_keypoint_socket.recv()
+                    reset_feedback = self.teleop_reset_socket.recv()
+                    button_feedback_num = (
+                        ARM_LOW_RESOLUTION
+                        if button_feedback == b'Low'
+                        else ARM_HIGH_RESOLUTION
+                    )
+                    keypoint_left_dict = self._extract_data_from_token(raw_left_keypoints)
+                    self._publish_left_data(keypoint_left_dict)
+                    self._publish_button_data(button_feedback_num)
+                    if reset_feedback == b'Reset':
+                        print('QUEST_RESET_BUTTON_RECEIVED', flush=True)
+                        self._publish_reset_data(1)
+
                 self.timer.end_loop()
 
             except KeyboardInterrupt:
                 break
 
         self.raw_keypoint_right_socket.close()
-        self.raw_keypoint_left_socket.close()
+        if self.raw_keypoint_left_socket is not None:
+            self.raw_keypoint_left_socket.close()
+        if self.button_keypoint_socket is not None:
+            self.button_keypoint_socket.close()
         self.teleop_reset_socket.close()
         self.hand_keypoint_publisher.stop()
         self.teleop_reset_publisher.stop()

@@ -66,6 +66,8 @@ class GestureDetector : MonoBehaviour
     private QuestTelemetryHud telemetryHud;
     private GameObject rightControllerModel;
     private bool controllerPaused = true;
+    private float nextControllerPacketTime;
+    private const float ControllerPacketInterval = 1f / 60f;
     // Starting the server connection
     public void CreateTCPConnection()
      {
@@ -78,24 +80,25 @@ class GestureDetector : MonoBehaviour
         {
             // Initiate Push Socket
             rightclient = new PushSocket();
+            rightclient.Options.SendHighWatermark = 1;
+            rightclient.Options.Linger = TimeSpan.Zero;
             rightclient.Connect(rightcommunicationAddress);
             rightconnectionEstablished = true;
         }
-        if (LeftAddressAvailable)
-        {
-            leftclient = new PushSocket();
-            leftclient.Connect(leftcommunicationAddress);
-            leftconnectionEstablished = true;
-        }
+        // LIBERO is single-arm controller mode; do not create or transmit the
+        // legacy dummy left-hand stream.
+        leftconnectionEstablished = true;
         string resetAddress = netConfig.getPauseAddress();
         if (!String.Equals(resetAddress, "tcp://:"))
         {
             resetclient = new PushSocket();
+            resetclient.Options.SendHighWatermark = 1;
+            resetclient.Options.Linger = TimeSpan.Zero;
             resetclient.Connect(resetAddress);
             resetconnectionEstablished = true;
         }
         // Setting color to green to indicate control
-        if (rightconnectionEstablished && leftconnectionEstablished)
+        if (rightconnectionEstablished)
         {
             if (StreamBorder != null)
                 StreamBorder.color = Color.green;
@@ -259,18 +262,8 @@ class GestureDetector : MonoBehaviour
             Debug.Log("QUEST_RESET_BUTTON_DOWN");
         }
 
-        List<Vector3> rightPoints = CreateControllerSkeleton(
-            OVRInput.Controller.RTouch, pausePressed, gripperPressed);
-        // LIBERO uses one arm. Keep sending a dummy left packet because the
-        // existing receiver expects both sockets, but do not require or use
-        // the left Touch controller.
-        List<Vector3> leftPoints = rightPoints;
-        rightclient.SendFrame("absolute:" + SerializeVector3List(rightPoints));
-        leftclient.SendFrame("absolute:" + SerializeVector3List(leftPoints));
-        if (client2 != null)
-            client2.SendFrame("Low");
-        if (resetconnectionEstablished)
-            resetclient.SendFrame(resetPressed ? "Reset" : "None");
+        if (resetPressedDown && resetconnectionEstablished)
+            resetclient.TrySendFrame(TimeSpan.Zero, "Reset", false);
 
         if (StreamBorder != null)
             StreamBorder.color = gripperPressed
@@ -280,6 +273,47 @@ class GestureDetector : MonoBehaviour
         ToggleResolutionButton(false);
         if (WristTracker != null)
             WristTracker.SetActive(false);
+
+        // Sample controller state every Unity frame for button edges and local
+        // visualization, but transmit poses at a stable 60 Hz. A non-blocking
+        // send with HWM=1 prevents Wi-Fi loss from stalling Unity's render loop.
+        if (Time.unscaledTime < nextControllerPacketTime)
+            return;
+        nextControllerPacketTime = Time.unscaledTime + ControllerPacketInterval;
+        List<Vector3> rightPoints = CreateControllerSkeleton(
+            OVRInput.Controller.RTouch, pausePressed, gripperPressed);
+        rightclient.TrySendFrame(
+            TimeSpan.Zero,
+            "absolute:" + SerializeVector3List(rightPoints),
+            false);
+    }
+
+    private void CloseControllerConnections()
+    {
+        if (rightclient != null)
+        {
+            rightclient.Dispose();
+            rightclient = null;
+        }
+        if (leftclient != null)
+        {
+            leftclient.Dispose();
+            leftclient = null;
+        }
+        if (client2 != null)
+        {
+            client2.Dispose();
+            client2 = null;
+        }
+        if (resetclient != null)
+        {
+            resetclient.Dispose();
+            resetclient = null;
+        }
+        rightconnectionEstablished = false;
+        leftconnectionEstablished = false;
+        resolutionconnectionEstablished = false;
+        resetconnectionEstablished = false;
     }
 
     // Function to serialize the Vector3 List
@@ -491,47 +525,24 @@ class GestureDetector : MonoBehaviour
     void Update()
     {
         UpdateControllerVisualizer();
-        if (rightconnectionEstablished && leftconnectionEstablished)
+        if (rightconnectionEstablished)
         {
+            if (!String.Equals(rightcommunicationAddress, netConfig.getRightKeypointAddress()))
+            {
+                CloseControllerConnections();
+                return;
+            }
             bool rightTouchControllerConnected =
                 OVRInput.IsControllerConnected(OVRInput.Controller.RTouch);
             if (rightTouchControllerConnected)
             {
-                if (!resolutionconnectionEstablished)
-                    SendResolution();
                 SendControllerData();
                 return;
             }
 
-            SendResolution();
-            if (String.Equals(rightcommunicationAddress, netConfig.getRightKeypointAddress())||String.Equals(leftcommunicationAddress, netConfig.getLeftKeypointAddress()))
-            {    
-                StreamPauser();
-                if(StreamAbsoluteLeftData && StreamAbsoluteRightData)
-                {
-                    SendRightHandData("absolute");
-                    SendLeftHandData("absolute");
-                    ToggleResolutionButton(false);
-                }
-                if (StreamRelativeData)
-                {
-                    SendRightHandData("relative");
-                    SendLeftHandData("relative");
-                    ToggleResolutionButton(false);    
-                }
-
-                if (StreamResolution)
-                {   
-                    ToggleHighResolutionButton(true);
-                    ToggleLowResolutionButton(true);
-                }  
-              
-            }
-            else
-            {
-                connectionEstablished = false;
-            }
-        
+            if (StreamBorder != null)
+                StreamBorder.color = Color.red;
+            return;
         } else
         {
             if (StreamBorder != null)
@@ -539,5 +550,10 @@ class GestureDetector : MonoBehaviour
             ToggleMenuButton(true);
             CreateTCPConnection();     
         }
+    }
+
+    private void OnDestroy()
+    {
+        CloseControllerConnections();
     }
 }

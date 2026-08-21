@@ -11,6 +11,7 @@ detector:
   button_publish_port: ${resolution_button_publish_port}
   teleop_reset_port: ${teleop_reset_port}
   teleop_reset_publish_port: ${teleop_reset_publish_port}
+  single_controller: true
   
 
 
@@ -22,16 +23,13 @@ transforms:
     keypoint_port: ${keypoint_port}
     transformation_port: ${transformed_position_keypoint_port}
     moving_average_limit: 1
+    controller_mode: true
 
 
 # Visualizers used to visualize the keypoints stream
-visualizers:
-  - 
-    _target_: openteach.components.visualizers.visualizer_2d.Hand2DVisualizer
-    host: ${host_address}
-    transformed_keypoint_port: ${transformed_position_keypoint_port}
-    oculus_feedback_port: ${oculus_graph_port}
-    display_plot: ${visualize_right_2d}
+# Controller mode has no hand skeleton to inspect. The old visualizer rendered
+# Matplotlib to disk and JPEG-encoded it at VR rate even while hidden in Quest.
+visualizers: []
 
 
 operators:
@@ -65,6 +63,14 @@ environment:
     teleop_reset_port: ${teleop_reset_publish_port}
     stream_oculus: true
     suite_name: libero_90
+    control_freq: 20
+    camera_fps: 15
+    telemetry_fps: 10
+    action_timeout: 0.25
+    main_camera_resolution: 320
+    hand_camera_resolution: 192
+    publish_recording_streams: false
+    publish_depth: false
     # task_name: LIVING_ROOM_SCENE3_pick_up_the_cream_cheese_and_put_it_in_the_tray #KITCHEN_SCENE7_open_the_microwave
     # task_name: KITCHEN_SCENE3_put_the_moka_pot_on_the_stove
     task_name: KITCHEN_SCENE1_open_the_top_drawer_of_the_cabinet_and_put_the_bowl_in_it

@@ -48,7 +48,17 @@ print "選択: ${STAGE_NAMES[$choice]}"
 print "Task: $task_name"
 print "Open Teach host: $OPENTEACH_HOST"
 
+recording_overrides=()
+if [[ "${OPENTEACH_RECORD_STREAMS:-0}" == "1" ]]; then
+  print "Recording RGB/depth streams: enabled"
+  recording_overrides+=(
+    "robot.environment.0.publish_recording_streams=true"
+    "robot.environment.0.publish_depth=true"
+  )
+fi
+
 exec python teleop.py \
   robot=libero_sim \
   sim_env=True \
-  "robot.environment.0.task_name=$task_name"
+  "robot.environment.0.task_name=$task_name" \
+  "${recording_overrides[@]}"

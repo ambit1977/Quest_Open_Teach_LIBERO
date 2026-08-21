@@ -64,7 +64,10 @@ class LiberoSimOperator(Operator):
 
 
 		# Initalizing the robot controller
-		self.resolution_scale = 1 # NOTE: Get this from a socket
+		# Controller mode previously received the same "Low" packet every frame.
+		# Keep that effective scale locally and only consume a packet if a future
+		# UI explicitly changes it.
+		self.resolution_scale = 0.5
 		self.arm_teleop_state = ARM_TELEOP_STOP # We will start as the cont
 		self.gripper_correct_state =0
 		self.pause_flag=0
@@ -158,6 +161,7 @@ class LiberoSimOperator(Operator):
 		self.previous_robot_position = None
 		self.previous_robot_rotation = None
 		self.latest_joint_angles = None
+		self.latest_robot_frame = None
 		self.auto_rebase_count = 0
 		# The received hand-frame axes are ordered differently from the
 		# Panda yaw/pitch/roll convention observed in the Quest view. Remap
@@ -189,11 +193,20 @@ class LiberoSimOperator(Operator):
 
 	# Get the hand frame
 	def _get_hand_frame(self):
-		for i in range(10):
-			data = self.transformed_arm_keypoint_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
-			if not data is None: break 
-		if data is None: return None
+		data = self.transformed_arm_keypoint_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+		if data is None:
+			return None
 		return np.asanyarray(data).reshape(4, 3)
+
+	def _get_robot_frame(self, block_if_empty=True):
+		data = self.robot_pose_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+		if data is not None:
+			self.latest_robot_frame = np.asanyarray(data)
+		if self.latest_robot_frame is None and block_if_empty:
+			self.latest_robot_frame = np.asanyarray(
+				self.robot_pose_subscriber.recv_keypoints()
+			)
+		return self.latest_robot_frame
 	
 	# Get the resolution scale mode
 	def _get_resolution_scale_mode(self):
@@ -316,7 +329,7 @@ class LiberoSimOperator(Operator):
 	def _reset_teleop(self):
 		# Just updates the beginning position of the arm
 		print('****** RESETTING TELEOP ****** ')
-		self.robot_frame=self.end_eff_position_subscriber.recv_keypoints()
+		self.robot_frame = self._get_robot_frame()
 		self.robot_init_H=self.cart2homo(self.robot_frame[2:])
 		self.robot_moving_H = copy(self.robot_init_H)
 		self.previous_robot_position = copy(self.robot_init_H[:3, 3])
@@ -336,14 +349,17 @@ class LiberoSimOperator(Operator):
 		return first_hand_frame
 	
 	# Get ARm Teleop state from Hand keypoints 
-	def _get_arm_teleop_state_from_hand_keypoints(self):
-		pause_state ,pause_status,pause_right =self.get_pause_state_from_hand_keypoints()
+	def _get_arm_teleop_state_from_hand_keypoints(self, transformed_hand_coords):
+		pause_state, pause_status, pause_right = self.get_pause_state_from_hand_keypoints(
+			transformed_hand_coords
+		)
 		pause_status =np.asanyarray(pause_status).reshape(1)[0] 
 		return pause_state,pause_status,pause_right
 	
 	# Get Pause State from Hand Keypoints 
-	def get_pause_state_from_hand_keypoints(self):
-		transformed_hand_coords= self.transformed_hand_keypoint_subscriber.recv_keypoints()
+	def get_pause_state_from_hand_keypoints(self, transformed_hand_coords=None):
+		if transformed_hand_coords is None:
+			transformed_hand_coords = self.transformed_hand_keypoint_subscriber.recv_keypoints()
 		ring_distance = np.linalg.norm(transformed_hand_coords[OCULUS_JOINTS['ring'][-1]]- transformed_hand_coords[OCULUS_JOINTS['thumb'][-1]])
 		middle_distance = np.linalg.norm(transformed_hand_coords[OCULUS_JOINTS['middle'][-1]]- transformed_hand_coords[OCULUS_JOINTS['thumb'][-1]])
 		thresh = 0.04 
@@ -362,8 +378,9 @@ class LiberoSimOperator(Operator):
 		return pause_state , pause_status , pause_right
 	
 	# Get Gripper State from Hand Keypoints 
-	def get_gripper_state_from_hand_keypoints(self):
-		transformed_hand_coords= self.transformed_hand_keypoint_subscriber.recv_keypoints()
+	def get_gripper_state_from_hand_keypoints(self, transformed_hand_coords=None):
+		if transformed_hand_coords is None:
+			transformed_hand_coords = self.transformed_hand_keypoint_subscriber.recv_keypoints()
 		pinky_distance = np.linalg.norm(transformed_hand_coords[OCULUS_JOINTS['pinky'][-1]]- transformed_hand_coords[OCULUS_JOINTS['thumb'][-1]])
 		thresh = 0.03
 		gripper_fr =False
@@ -402,9 +419,18 @@ class LiberoSimOperator(Operator):
 			)
 			return
 		self.resolution_scale = self._get_resolution_scale_mode()
+		# A single controller packet supplies pause, grip, position, and
+		# orientation. Consuming two additional packets here used to add roughly
+		# 33 ms of avoidable latency at 60 Hz.
+		transformed_hand_coords = self.transformed_hand_keypoint_subscriber.recv_keypoints()
+		transformed_hand_coords = np.asanyarray(transformed_hand_coords).reshape(
+			OCULUS_NUM_KEYPOINTS, 3
+		)
 
 		# See if there is a reset in the teleop
-		new_arm_teleop_state,pause_status,pause_right = self._get_arm_teleop_state_from_hand_keypoints()
+		new_arm_teleop_state, pause_status, pause_right = (
+			self._get_arm_teleop_state_from_hand_keypoints(transformed_hand_coords)
+		)
 		if self.is_first_frame or (self.arm_teleop_state == ARM_TELEOP_STOP and new_arm_teleop_state == ARM_TELEOP_CONT):
 			moving_hand_frame = self._reset_teleop() # Should get the moving hand frame only once
 		else:
@@ -412,7 +438,9 @@ class LiberoSimOperator(Operator):
 		self.arm_teleop_state = new_arm_teleop_state
 
 		# gripper
-		gripper_state,status_change, gripper_flag = self.get_gripper_state_from_hand_keypoints()
+		gripper_state, status_change, gripper_flag = self.get_gripper_state_from_hand_keypoints(
+			transformed_hand_coords
+		)
 		if self.gripper_cnt==1 and status_change is True:
 			self.gripper_correct_state= gripper_state
         # if status_change is True:
@@ -445,8 +473,7 @@ class LiberoSimOperator(Operator):
 		# using the actual current end-effector pose, rather than the previous
 		# controller target. This makes holding the controller still hold the
 		# arm at the corresponding XYZ point.
-		current_robot_frame = self.robot_pose_subscriber.recv_keypoints()
-		current_robot_frame = np.asanyarray(current_robot_frame)
+		current_robot_frame = self._get_robot_frame()
 		current_robot_H = self.cart2homo(current_robot_frame[2:])
 		current_position = current_robot_H[:3, 3]
 		robot_motion = (

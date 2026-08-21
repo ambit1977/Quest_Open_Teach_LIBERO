@@ -10,6 +10,8 @@ import threading
 def create_push_socket(host, port):
     context = zmq.Context()
     socket = context.socket(zmq.PUSH)
+    socket.setsockopt(zmq.SNDHWM, 1)
+    socket.setsockopt(zmq.LINGER, 0)
     socket.bind('tcp://{}:{}'.format(host, port))
     return socket
 
@@ -41,6 +43,8 @@ class ZMQKeypointPublisher(object):
     def _init_publisher(self):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUB)
+        self.socket.setsockopt(zmq.SNDHWM, 1)
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.bind('tcp://{}:{}'.format(self._host, self._port))
 
     def pub_keypoints(self, keypoint_array, topic_name):
@@ -97,6 +101,8 @@ class ZMQCameraPublisher(object):
     def _init_publisher(self):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUB)
+        self.socket.setsockopt(zmq.SNDHWM, 1)
+        self.socket.setsockopt(zmq.LINGER, 0)
         print('tcp://{}:{}'.format(self._host, self._port))
         self.socket.bind('tcp://{}:{}'.format(self._host, self._port))
 
@@ -170,14 +176,19 @@ class ZMQCameraSubscriber(threading.Thread):
 
 # Publisher for image visualizers
 class ZMQCompressedImageTransmitter(object):
-    def __init__(self, host, port):
+    def __init__(self, host, port, jpeg_quality=60):
         self._host, self._port = host, port
+        self._jpeg_quality = int(np.clip(jpeg_quality, 1, 100))
         # self._init_push_socket()
         self._init_publisher()
 
     def _init_publisher(self):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUB)
+        # Video is live telemetry. Never retain stale frames when the Quest
+        # decoder or Wi-Fi link briefly falls behind.
+        self.socket.setsockopt(zmq.SNDHWM, 1)
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.bind('tcp://{}:{}'.format(self._host, self._port))
 
     def _init_push_socket(self):
@@ -186,7 +197,13 @@ class ZMQCompressedImageTransmitter(object):
         self.socket.bind('tcp://{}:{}'.format(self._host, self._port))
 
     def send_image(self, rgb_image):
-        _, buffer = cv2.imencode('.jpg', rgb_image, [int(cv2.IMWRITE_WEBP_QUALITY), 10])
+        encoded, buffer = cv2.imencode(
+            '.jpg',
+            rgb_image,
+            [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality],
+        )
+        if not encoded:
+            return
         self.socket.send(np.array(buffer).tobytes())
 
     def stop(self):

@@ -7,7 +7,8 @@ from openteach.utils.network import ZMQKeypointPublisher, ZMQKeypointSubscriber,
 from openteach.utils.timer import FrequencyTimer
 
 class TransformHandPositionCoords(Component):
-    def __init__(self, host, keypoint_port, transformation_port,moving_average_limit = 5):
+    def __init__(self, host, keypoint_port, transformation_port,moving_average_limit = 5,
+                 controller_mode=False):
         self.notify_component_start('keypoint position transform')
         
         # Initializing the subscriber for right hand keypoints
@@ -20,6 +21,7 @@ class TransformHandPositionCoords(Component):
         self.knuckle_points = (OCULUS_JOINTS['knuckles'][0], OCULUS_JOINTS['knuckles'][-1])
         # Moving average queue
         self.moving_average_limit = moving_average_limit
+        self.controller_mode = controller_mode
         # Create a queue for moving average
         self.coord_moving_average_queue, self.frame_moving_average_queue = [], []
 
@@ -54,6 +56,17 @@ class TransformHandPositionCoords(Component):
 
     def transform_keypoints(self, hand_coords):
         translated_coords = self._translate_coords(hand_coords)
+        if self.controller_mode:
+            # Touch controller packets already contain a rigid synthetic palm
+            # frame. Distances used for pause / gripper detection are rotation
+            # invariant, so the expensive tiny-matrix LAPACK solve and the
+            # full point-cloud rotation provide no value in controller mode.
+            hand_dir_frame = self._get_hand_dir_frame(
+                hand_coords[0],
+                translated_coords[self.knuckle_points[0]],
+                translated_coords[self.knuckle_points[1]],
+            )
+            return translated_coords, hand_dir_frame
         original_coord_frame = self._get_coord_frame(
             translated_coords[self.knuckle_points[0]], 
             translated_coords[self.knuckle_points[1]]

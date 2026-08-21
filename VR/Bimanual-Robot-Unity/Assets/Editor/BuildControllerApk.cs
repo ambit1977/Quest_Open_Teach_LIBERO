@@ -15,8 +15,8 @@ public static class BuildControllerApk
 
         PlayerSettings.productName = productName;
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, packageName);
-        PlayerSettings.bundleVersion = "1.3-controller";
-        PlayerSettings.Android.bundleVersionCode = 4;
+        PlayerSettings.bundleVersion = "1.4-low-latency";
+        PlayerSettings.Android.bundleVersionCode = 5;
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
         PlayerSettings.SetScriptingBackend(
             BuildTargetGroup.Android,

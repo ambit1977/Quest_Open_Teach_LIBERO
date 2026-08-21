@@ -6,17 +6,17 @@ using NetMQ.Sockets;
 
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Threading;
 
 public class CameraOneStreamer : MonoBehaviour
 {
     private Thread imageStreamer;
     private Thread handImageStreamer;
-    private List<byte[]> imageList;
-    private List<byte[]> handImageList;
-    private readonly object imageLock = new object();
-    private readonly object handImageLock = new object();
+    private byte[] latestImage;
+    private byte[] latestHandImage;
+    private volatile bool receiveRunning;
+    private float nextTextureUpdate;
+    private const float TextureUpdateInterval = 1f / 15f;
 
     public RawImage image;
     private RawImage handImage;
@@ -28,8 +28,6 @@ public class CameraOneStreamer : MonoBehaviour
     private string communicationAddress;
     private string handCommunicationAddress;
     private NetworkManager netConfig;
-    private SubscriberSocket socket;
-    private SubscriberSocket handSocket;
 
     private void StartImageThread()
     {
@@ -39,59 +37,64 @@ public class CameraOneStreamer : MonoBehaviour
 
         if (AddressAvailable)
         {
-            StartConnection();
-            imageList = new List<byte[]>();
-            handImageList = new List<byte[]>();
+            handCommunicationAddress = netConfig.getCamAddress(1);
+            receiveRunning = true;
             imageStreamer = new Thread(getRobotImage);
             imageStreamer.IsBackground = true;
             imageStreamer.Start();
             handImageStreamer = new Thread(getHandImage);
             handImageStreamer.IsBackground = true;
             handImageStreamer.Start();
+            connectionEstablished = true;
         }
-    }
-
-    public void StartConnection()
-    {
-        // Initiate Subscriber Socket
-        socket = new SubscriberSocket();
-        socket.Options.ReceiveHighWatermark = 1000;
-        socket.Connect(communicationAddress);
-        socket.Subscribe("");
-        handCommunicationAddress = netConfig.getCamAddress(1);
-        handSocket = new SubscriberSocket();
-        handSocket.Options.ReceiveHighWatermark = 2;
-        handSocket.Connect(handCommunicationAddress);
-        handSocket.Subscribe("");
-        connectionEstablished = true;
     }
 
     private void getRobotImage()
     {
-        while (true)
+        using (SubscriberSocket receiver = new SubscriberSocket())
         {
-            byte[] imageBytes = socket.ReceiveFrameBytes();
-            lock (imageLock)
+            receiver.Options.ReceiveHighWatermark = 1;
+            receiver.Connect(communicationAddress);
+            receiver.Subscribe("");
+            while (receiveRunning)
             {
-                imageList.Add(imageBytes);
-                if (imageList.Count > 2)
-                    imageList.RemoveAt(0);
+                byte[] imageBytes;
+                if (receiver.TryReceiveFrameBytes(
+                    TimeSpan.FromMilliseconds(100), out imageBytes))
+                    Interlocked.Exchange(ref latestImage, imageBytes);
             }
         }
     }
 
     private void getHandImage()
     {
-        while (true)
+        using (SubscriberSocket receiver = new SubscriberSocket())
         {
-            byte[] imageBytes = handSocket.ReceiveFrameBytes();
-            lock (handImageLock)
+            receiver.Options.ReceiveHighWatermark = 1;
+            receiver.Connect(handCommunicationAddress);
+            receiver.Subscribe("");
+            while (receiveRunning)
             {
-                handImageList.Add(imageBytes);
-                if (handImageList.Count > 2)
-                    handImageList.RemoveAt(0);
+                byte[] imageBytes;
+                if (receiver.TryReceiveFrameBytes(
+                    TimeSpan.FromMilliseconds(100), out imageBytes))
+                    Interlocked.Exchange(ref latestHandImage, imageBytes);
             }
         }
+    }
+
+    private void StopImageThreads()
+    {
+        receiveRunning = false;
+        if (imageStreamer != null && imageStreamer.IsAlive)
+            imageStreamer.Join(300);
+        if (handImageStreamer != null && handImageStreamer.IsAlive)
+            handImageStreamer.Join(300);
+        imageStreamer = null;
+        handImageStreamer = null;
+        Interlocked.Exchange(ref latestImage, null);
+        Interlocked.Exchange(ref latestHandImage, null);
+        connectionEstablished = false;
     }
 
     private void CreateHandCameraOverlay()
@@ -131,10 +134,10 @@ public class CameraOneStreamer : MonoBehaviour
             yield return null;
 
         // Initializing the image texture
-        texture = new Texture2D(640, 360, TextureFormat.RGB24, false);
+        texture = new Texture2D(320, 320, TextureFormat.RGB24, false);
         image.texture = texture;
         CreateHandCameraOverlay();
-        handTexture = new Texture2D(256, 256, TextureFormat.RGB24, false);
+        handTexture = new Texture2D(192, 192, TextureFormat.RGB24, false);
         handImage.texture = handTexture;
     }
 
@@ -143,35 +146,35 @@ public class CameraOneStreamer : MonoBehaviour
         if (connectionEstablished)
         {
             // To check if the same IP is being used
-            if (String.Equals(communicationAddress, netConfig.getCamAddress()))
+            if (String.Equals(communicationAddress, netConfig.getCamAddress()) &&
+                String.Equals(handCommunicationAddress, netConfig.getCamAddress(1)))
             {
-                // Getting the image from the queue and displaying it
-                lock (imageLock)
+                // JPEG decode and texture upload run on Unity's main thread.
+                // Cap them to the producer rate and atomically discard stale
+                // frames so a backlog can never accumulate.
+                if (Time.unscaledTime >= nextTextureUpdate)
                 {
-                    if (imageList.Count > 0)
-                    {
-                        texture.LoadImage(imageList[imageList.Count - 1]);
-                        imageList.Clear();
-                    }
-                }
-                lock (handImageLock)
-                {
-                    if (handImageList.Count > 0)
-                    {
-                        handTexture.LoadImage(handImageList[handImageList.Count - 1]);
-                        handImageList.Clear();
-                    }
+                    nextTextureUpdate = Time.unscaledTime + TextureUpdateInterval;
+                    byte[] imageBytes = Interlocked.Exchange(ref latestImage, null);
+                    if (imageBytes != null)
+                        texture.LoadImage(imageBytes, false);
+                    byte[] handImageBytes = Interlocked.Exchange(ref latestHandImage, null);
+                    if (handImageBytes != null)
+                        handTexture.LoadImage(handImageBytes, false);
                 }
             }
             else
             {
-                // Aborting the queue
-                imageStreamer.Abort();
-                connectionEstablished = false;
+                StopImageThreads();
             }
         } else
         {
             StartImageThread();
         }
+    }
+
+    private void OnDestroy()
+    {
+        StopImageThreads();
     }
 }

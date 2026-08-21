@@ -72,6 +72,12 @@ The Data Collection module saves the robot states , cameras sensors output as a 
 
 `python3 data_collect.py robot=allegro_sim/libero_sim demo_num=1 sim_env=True`
 
+For the optimized LIBERO Quest controller, recording streams are disabled
+during normal teleoperation. Start LIBERO with
+`OPENTEACH_RECORD_STREAMS=1 scripts/run_teleop_stage_macos.sh <stage>` before
+starting `scripts/run_data_collect_macos.sh <demo_num>` when RGB/depth capture
+is required.
+
 #### Note: Remember to enter your network IP on the server [config](/configs/network.yaml)
 
 The data saves camera stream in the optimized form of .avi videos and saves depth and robot information in the form of h5 files.

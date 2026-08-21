@@ -16,6 +16,9 @@ Open Teach consists of two parts.
 
 Read VR specific information, User Interface and APK files [here](/docs/vr.md)
 
+Macランチャー、Questコントローラー操作、ステージ選択、再起動、遅延計測は
+[日本語操作マニュアル](/docs/quest_libero_controller_manual.md)を参照してください。
+
 #### Quest controller clutch and automatic rebase
 
 The LIBERO controller uses the right Touch controller as a relative 6-DoF
@@ -87,5 +90,4 @@ If you use this repo in your research, please consider citing the paper as follo
       archivePrefix={arXiv},
       primaryClass={cs.RO}
 }
-
 
