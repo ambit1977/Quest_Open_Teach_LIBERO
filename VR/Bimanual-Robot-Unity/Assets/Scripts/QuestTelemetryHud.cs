@@ -10,7 +10,7 @@ using UnityEngine.UI;
 
 public class QuestTelemetryHud : MonoBehaviour
 {
-    public string host = "192.168.1.18";
+    public string host = "192.168.1.34";
     public int port = 10012;
     public Transform trackingSpace;
     private Thread receiverThread;
