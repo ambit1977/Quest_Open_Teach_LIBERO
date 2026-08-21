@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 
 using UnityEngine;
@@ -137,7 +138,7 @@ class GestureDetector : MonoBehaviour
     }
     
     // Start function
-    void Start()
+    IEnumerator Start()
      {
         // This teleoperation view is intentionally fully immersive. Disable
         // the passthrough layer and make every eye camera clear to opaque black.
@@ -154,6 +155,8 @@ class GestureDetector : MonoBehaviour
         // Getting the Network Config Updater gameobject
         GameObject netConfGameObject = GameObject.Find("NetworkConfigsLoader");
         netConfig = netConfGameObject.GetComponent<NetworkManager>();
+        while (netConfig != null && !netConfig.IsReady)
+            yield return null;
         // Getting the Laser Pointer and Line Renderer
         LaserPointer = GameObject.Find("LaserPointer");
         if (LaserPointer != null)

@@ -1,4 +1,9 @@
 using System;
+using System.Collections;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
 using UnityEngine;
 using TMPro;
 
@@ -36,10 +41,14 @@ public class NetworkConfiguration
     }
 }
 
+[DefaultExecutionOrder(-1000)]
 public class NetworkManager : MonoBehaviour
 {
+    private const int DiscoveryPort = 8125;
+
     // Loading the Network Configurations
     public NetworkConfiguration netConfig;
+    public bool IsReady { get; private set; }
 
     // Display variables for menu
     public TextMeshPro IPDisplay;
@@ -171,7 +180,7 @@ public class NetworkManager : MonoBehaviour
    
 
 
-    void Start()
+    void Awake()
     {
         var jsonFile = Resources.Load<TextAsset>("Configurations/Network");
         netConfig = JsonUtility.FromJson<NetworkConfiguration>(jsonFile.text);
@@ -183,6 +192,73 @@ public class NetworkManager : MonoBehaviour
             IPNotFound = true;
         else
             IPNotFound = false;        
+    }
+
+    IEnumerator Start()
+    {
+        string discoveredAddress = null;
+        string discoveryError = null;
+        bool discoveryFinished = false;
+        string configuredAddress = netConfig != null ? netConfig.IPAddress : "";
+        string requestId = Guid.NewGuid().ToString("N");
+
+        Thread discoveryThread = new Thread(() =>
+        {
+            UdpClient client = null;
+            try
+            {
+                client = new UdpClient(0);
+                client.EnableBroadcast = true;
+                client.Client.ReceiveTimeout = 1400;
+                string payload = "{\"id\":\"" + requestId
+                    + "\",\"command\":\"discover\",\"stage\":3}";
+                byte[] data = Encoding.UTF8.GetBytes(payload);
+
+                client.Send(data, data.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort));
+                if (!String.IsNullOrWhiteSpace(configuredAddress) &&
+                    IPAddress.TryParse(configuredAddress, out IPAddress configuredIP))
+                    client.Send(data, data.Length, new IPEndPoint(configuredIP, DiscoveryPort));
+
+                IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+                byte[] response = client.Receive(ref remote);
+                string responseText = Encoding.UTF8.GetString(response);
+                if (responseText.Contains("\"status\":\"discovered\"") &&
+                    responseText.Contains("\"id\":\"" + requestId + "\""))
+                    discoveredAddress = remote.Address.ToString();
+            }
+            catch (SocketException)
+            {
+                // No launcher response: retain the saved or packaged fallback.
+            }
+            catch (Exception exception)
+            {
+                discoveryError = exception.Message;
+            }
+            finally
+            {
+                client?.Close();
+                discoveryFinished = true;
+            }
+        });
+        discoveryThread.IsBackground = true;
+        discoveryThread.Start();
+
+        float deadline = Time.realtimeSinceStartup + 1.8f;
+        while (!discoveryFinished && Time.realtimeSinceStartup < deadline)
+            yield return null;
+
+        if (!String.IsNullOrWhiteSpace(discoveredAddress))
+        {
+            changeIPAddress(discoveredAddress);
+            Debug.Log("QUEST_DISCOVERY_FOUND " + discoveredAddress);
+        }
+        else
+        {
+            Debug.Log("QUEST_DISCOVERY_FALLBACK " + configuredAddress);
+        }
+        if (!String.IsNullOrEmpty(discoveryError))
+            Debug.LogWarning("QUEST_DISCOVERY_ERROR " + discoveryError);
+        IsReady = true;
     }
 
     void Update()

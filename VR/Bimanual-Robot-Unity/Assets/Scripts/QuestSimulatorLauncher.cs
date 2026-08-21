@@ -45,6 +45,8 @@ public class QuestSimulatorLauncher : MonoBehaviour
                 networkManager = networkObject.GetComponent<NetworkManager>();
             yield return null;
         }
+        while (!networkManager.IsReady)
+            yield return null;
 
         BuildHeadLockedStatus();
 

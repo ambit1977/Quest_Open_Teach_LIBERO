@@ -5,6 +5,7 @@ using NetMQ;
 using NetMQ.Sockets;
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -121,11 +122,13 @@ public class CameraOneStreamer : MonoBehaviour
         overlay.transform.SetAsLastSibling();
     }
 
-    public void Start()
+    public IEnumerator Start()
     {
         // Getting the Network Config Updater gameobject
         GameObject netConfGame = GameObject.Find("NetworkConfigsLoader");
         netConfig = netConfGame.GetComponent<NetworkManager>();
+        while (netConfig != null && !netConfig.IsReady)
+            yield return null;
 
         // Initializing the image texture
         texture = new Texture2D(640, 360, TextureFormat.RGB24, false);

@@ -61,9 +61,10 @@ The app appears under unknown sources / developer applications as
 
 ## Verify Quest network packets first
 
-Quest and Mac must be on the same non-guest Wi-Fi. The current controller APK
-defaults to `192.168.1.34`; the Mac launcher detects its address from the
-default interface each time.
+Quest and Mac must be on the same non-guest Wi-Fi. On startup the controller
+APK broadcasts a discovery request on UDP port 8125. The Mac launcher replies,
+and the Quest saves the response source as its current Mac address. The packaged
+address is used only as a fallback when discovery receives no reply.
 The macOS application firewall is currently disabled.
 
 Before LIBERO, run the receiver probe:
@@ -75,8 +76,9 @@ python scripts/quest_packet_probe.py --host "$OPENTEACH_HOST" --seconds 20
 
 The controller build starts streaming when the app opens and intentionally
 hides the legacy hand-mode Menu / Change IP / Stream UI. Move the right Touch
-controller while the probe is running. If the Mac DHCP address changes, update
-`Assets/Resources/Configurations/Network.json` and rebuild the APK.
+controller while the probe is running. A Mac DHCP address change does not
+require an APK rebuild as long as the Mac launcher is running and both devices
+are on the same LAN.
 
 Success requires non-zero packet counts on the right (8087) and left (8110)
 ports. Stop the probe before starting teleoperation because both use the same

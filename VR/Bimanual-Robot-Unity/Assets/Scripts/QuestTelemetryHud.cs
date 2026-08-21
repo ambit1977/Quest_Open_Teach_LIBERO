@@ -34,6 +34,8 @@ public class QuestTelemetryHud : MonoBehaviour
         if (configObject != null)
         {
             NetworkManager manager = configObject.GetComponent<NetworkManager>();
+            while (manager != null && !manager.IsReady)
+                yield return null;
             if (manager != null && manager.netConfig != null &&
                 !String.IsNullOrWhiteSpace(manager.netConfig.IPAddress))
                 host = manager.netConfig.IPAddress;

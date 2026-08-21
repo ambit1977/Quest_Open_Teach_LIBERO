@@ -76,7 +76,12 @@ class TeleopLauncher:
         self.stop()
         self.start(stage)
 
-    def handle(self, payload: bytes, address: tuple[str, int]) -> None:
+    def handle(
+        self,
+        payload: bytes,
+        address: tuple[str, int],
+        server: socket.socket,
+    ) -> None:
         try:
             request = json.loads(payload.decode("utf-8"))
             request_id = str(request["id"])
@@ -84,6 +89,19 @@ class TeleopLauncher:
             stage = int(request.get("stage", self.stage))
         except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             print(f"LAUNCHER invalid_request from={address[0]}", flush=True)
+            return
+
+        if command == "discover":
+            response = json.dumps(
+                {
+                    "id": request_id,
+                    "status": "discovered",
+                    "stage": self.stage,
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            server.sendto(response, address)
+            print(f"LAUNCHER discovered_by={address[0]}", flush=True)
             return
 
         now = time.monotonic()
@@ -140,7 +158,7 @@ def main() -> int:
                 payload, address = server.recvfrom(4096)
             except socket.timeout:
                 continue
-            launcher.handle(payload, address)
+            launcher.handle(payload, address, server)
 
     launcher.stop()
     print("LAUNCHER exiting", flush=True)
