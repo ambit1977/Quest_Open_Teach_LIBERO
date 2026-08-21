@@ -45,7 +45,8 @@ are not part of the LIBERO simulation path.
 ## Install the Quest APK
 
 1. Enable Developer Mode for Quest 2.
-2. Enable Hand Tracking.
+2. Pair and wake both Touch controllers. Hand Tracking is not required by the
+   controller build.
 3. Connect Quest 2 to the Mac with a data-capable USB cable.
 4. Unlock the headset and approve the USB debugging prompt.
 5. Run:
@@ -55,12 +56,14 @@ adb devices -l
 ./scripts/install_quest_apk.sh
 ```
 
-The app appears under unknown sources / developer applications as Bimanual.
+The app appears under unknown sources / developer applications as
+`Open Teach LIBERO Controller`.
 
 ## Verify Quest network packets first
 
-Quest and Mac must be on the same non-guest Wi-Fi. The current Mac address is
-`192.168.1.18`; the launcher detects it from the default interface each time.
+Quest and Mac must be on the same non-guest Wi-Fi. The current controller APK
+defaults to `192.168.1.34`; the Mac launcher detects its address from the
+default interface each time.
 The macOS application firewall is currently disabled.
 
 Before LIBERO, run the receiver probe:
@@ -70,13 +73,10 @@ source scripts/macos_env.sh
 python scripts/quest_packet_probe.py --host "$OPENTEACH_HOST" --seconds 20
 ```
 
-In the Quest app:
-
-1. Open Menu.
-2. Select Change IP.
-3. Enter the address printed by `macos_env.sh` (currently `192.168.1.18`).
-4. Select Stream.
-5. Move both hands while the probe is running.
+The controller build starts streaming when the app opens and intentionally
+hides the legacy hand-mode Menu / Change IP / Stream UI. Move the right Touch
+controller while the probe is running. If the Mac DHCP address changes, update
+`Assets/Resources/Configurations/Network.json` and rebuild the APK.
 
 Success requires non-zero packet counts on the right (8087) and left (8110)
 ports. Stop the probe before starting teleoperation because both use the same
@@ -94,7 +94,8 @@ To override automatic LAN detection:
 OPENTEACH_HOST=192.168.1.18 ./scripts/run_teleop_macos.sh
 ```
 
-Quest Bimanual controls from the upstream application:
+Legacy hand-mode controls from the upstream application (not used by the
+controller build):
 
 - Index pinch: start arm teleoperation.
 - Middle or ring pinch: pause/resume (clutch).
@@ -126,6 +127,18 @@ too slow or too fast, adjust `controller_orientation_gain` and
 The A button is the controller clutch/pause. Release the clutch and resume from
 a comfortable neutral pose before reaching for a new object. The B button
 requests a stage reset through the existing reset path.
+
+The controller build does not require the hidden legacy Menu for stage
+selection:
+
+- left X button: previous LIBERO stage
+- left Y button: next LIBERO stage
+- left thumbstick click: restart the Mac simulator using the selected stage
+
+A small HMD-locked status strip shows the selected stage and whether the start
+or restart command was sent. Available stages are Top drawer, Bottom drawer,
+Bowl to drawer (default), Open microwave, Moka to stove, Soup to basket, Cheese
+to tray, and Book to shelf.
 
 ### Quest controller and telemetry display
 

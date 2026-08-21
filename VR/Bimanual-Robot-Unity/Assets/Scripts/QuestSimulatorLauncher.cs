@@ -25,6 +25,7 @@ public class QuestSimulatorLauncher : MonoBehaviour
     private GameObject launcherPanel;
     private TextMeshProUGUI stageText;
     private TextMeshProUGUI statusText;
+    private TextMeshProUGUI overlayText;
     private int selectedStage = 3;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -37,22 +38,92 @@ public class QuestSimulatorLauncher : MonoBehaviour
 
     private IEnumerator Start()
     {
-        GameObject menuCanvas = null;
-        while (menuCanvas == null || networkManager == null)
+        while (networkManager == null)
         {
-            menuCanvas = FindSceneObject("MenuCanvas");
             GameObject networkObject = GameObject.Find("NetworkConfigsLoader");
             if (networkObject != null)
                 networkManager = networkObject.GetComponent<NetworkManager>();
             yield return null;
         }
 
-        BuildMenu(menuCanvas.transform);
+        BuildHeadLockedStatus();
+
+        // Keep compatibility with the original Open Teach menu when it is
+        // visible, but never make simulator control depend on that legacy UI.
+        GameObject menuCanvas = FindSceneObject("MenuCanvas");
+        if (menuCanvas != null)
+            BuildMenu(menuCanvas.transform);
+
         // Opening the Quest app from the system App Library should be enough
         // to bring up the default LIBERO stage on the Mac. The Mac launcher
         // treats this as a no-op when a simulator is already running.
         yield return new WaitForSeconds(0.5f);
         SendCommand("start");
+    }
+
+    private void Update()
+    {
+        // The controller build hides the legacy hand-mode menu. Provide a
+        // menu-independent stage selector on the otherwise unused left Touch
+        // controller: X/Y select and the left stick click applies the stage.
+        if (OVRInput.GetDown(OVRInput.RawButton.X))
+            ChangeStage(-1);
+        if (OVRInput.GetDown(OVRInput.RawButton.Y))
+            ChangeStage(1);
+        if (OVRInput.GetDown(OVRInput.RawButton.LThumbstick))
+            SendCommand("restart");
+    }
+
+    private void BuildHeadLockedStatus()
+    {
+        Transform anchor = null;
+        GameObject centerEye = GameObject.Find("CenterEyeAnchor");
+        if (centerEye != null)
+            anchor = centerEye.transform;
+        else if (Camera.main != null)
+            anchor = Camera.main.transform;
+        if (anchor == null)
+            return;
+
+        GameObject canvasObject = new GameObject(
+            "SimulatorStageStatus",
+            typeof(RectTransform),
+            typeof(Canvas),
+            typeof(CanvasScaler)
+        );
+        canvasObject.transform.SetParent(anchor, false);
+        canvasObject.transform.localPosition = new Vector3(0f, -0.22f, 0.62f);
+        canvasObject.transform.localRotation = Quaternion.identity;
+        canvasObject.transform.localScale = Vector3.one * 0.00065f;
+
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = 110;
+        RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
+        canvasRect.sizeDelta = new Vector2(520f, 58f);
+
+        GameObject background = new GameObject("Background", typeof(RectTransform), typeof(Image));
+        background.transform.SetParent(canvasObject.transform, false);
+        RectTransform backgroundRect = background.GetComponent<RectTransform>();
+        backgroundRect.anchorMin = Vector2.zero;
+        backgroundRect.anchorMax = Vector2.one;
+        backgroundRect.offsetMin = Vector2.zero;
+        backgroundRect.offsetMax = Vector2.zero;
+        background.GetComponent<Image>().color = new Color(0.03f, 0.05f, 0.08f, 0.82f);
+
+        GameObject label = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+        label.transform.SetParent(canvasObject.transform, false);
+        RectTransform labelRect = label.GetComponent<RectTransform>();
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = new Vector2(8f, 2f);
+        labelRect.offsetMax = new Vector2(-8f, -2f);
+        overlayText = label.GetComponent<TextMeshProUGUI>();
+        overlayText.fontSize = 22f;
+        overlayText.alignment = TextAlignmentOptions.Center;
+        overlayText.color = Color.white;
+        overlayText.enableWordWrapping = false;
+        RefreshStageText();
     }
 
     private static GameObject FindSceneObject(string objectName)
@@ -124,6 +195,9 @@ public class QuestSimulatorLauncher : MonoBehaviour
     {
         if (stageText != null)
             stageText.text = "Stage " + selectedStage + ": " + stageNames[selectedStage - 1];
+        if (overlayText != null)
+            overlayText.text = "Stage " + selectedStage + ": " + stageNames[selectedStage - 1]
+                + "    X/Y: select    L-stick: restart";
     }
 
     private void SendCommand(string command)
@@ -152,6 +226,9 @@ public class QuestSimulatorLauncher : MonoBehaviour
             Debug.Log("QUEST_LAUNCHER_COMMAND_SENT command=" + command + " stage=" + selectedStage + " host=" + host);
             if (statusText != null)
                 statusText.text = command.Substring(0, 1).ToUpper() + command.Substring(1) + " sent for Stage " + selectedStage;
+            if (overlayText != null)
+                overlayText.text = command.Substring(0, 1).ToUpper() + command.Substring(1)
+                    + " sent - Stage " + selectedStage + ": " + stageNames[selectedStage - 1];
         }
         catch (Exception exception)
         {

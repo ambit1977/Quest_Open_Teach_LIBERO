@@ -96,36 +96,44 @@ class GestureDetector : MonoBehaviour
         // Setting color to green to indicate control
         if (rightconnectionEstablished && leftconnectionEstablished)
         {
-            StreamBorder.color = Color.green;
+            if (StreamBorder != null)
+                StreamBorder.color = Color.green;
             ToggleMenuButton(false);
         } else
         {
-            StreamBorder.color = Color.red;
+            if (StreamBorder != null)
+                StreamBorder.color = Color.red;
             ToggleMenuButton(true);
         }
     }
     // Function to toggle the menu button
     public void ToggleMenuButton(bool toggle)
     {
-        MenuButton.SetActive(toggle);
-        LineRenderer.enabled = toggle;
+        if (MenuButton != null)
+            MenuButton.SetActive(toggle);
+        if (LineRenderer != null)
+            LineRenderer.enabled = toggle;
     }
     // Function to toggle the resolution button
     public void ToggleResolutionButton(bool toggle)
     {
-        ResolutionButton.SetActive(toggle);
-        LineRenderer.enabled = toggle;
+        if (ResolutionButton != null)
+            ResolutionButton.SetActive(toggle);
+        if (LineRenderer != null)
+            LineRenderer.enabled = toggle;
     }
     // Function to toggle the high resolution button
     public void ToggleHighResolutionButton(bool toggle)
     {
-        HighResolutionButton.SetActive(toggle);
+        if (HighResolutionButton != null)
+            HighResolutionButton.SetActive(toggle);
         
     }
     // Function to toggle the low resolution button
     public void ToggleLowResolutionButton(bool toggle)
     {
-        LowResolutionButton.SetActive(toggle);
+        if (LowResolutionButton != null)
+            LowResolutionButton.SetActive(toggle);
     }
     
     // Start function
@@ -148,7 +156,8 @@ class GestureDetector : MonoBehaviour
         netConfig = netConfGameObject.GetComponent<NetworkManager>();
         // Getting the Laser Pointer and Line Renderer
         LaserPointer = GameObject.Find("LaserPointer");
-        LineRenderer = LaserPointer.GetComponent<LineRenderer>();
+        if (LaserPointer != null)
+            LineRenderer = LaserPointer.GetComponent<LineRenderer>();
         // Initializing the hand skeleton
         RightHandFingerBones = new List<OVRBone>(RightHandSkeleton.Bones);
         LeftHandFingerBones = new List<OVRBone>(LeftHandSkeleton.Bones);   
@@ -255,16 +264,19 @@ class GestureDetector : MonoBehaviour
         List<Vector3> leftPoints = rightPoints;
         rightclient.SendFrame("absolute:" + SerializeVector3List(rightPoints));
         leftclient.SendFrame("absolute:" + SerializeVector3List(leftPoints));
-        client2.SendFrame("Low");
+        if (client2 != null)
+            client2.SendFrame("Low");
         if (resetconnectionEstablished)
             resetclient.SendFrame(resetPressed ? "Reset" : "None");
 
-        StreamBorder.color = gripperPressed
-            ? Color.yellow
-            : (controllerPaused ? Color.red : Color.green);
+        if (StreamBorder != null)
+            StreamBorder.color = gripperPressed
+                ? Color.yellow
+                : (controllerPaused ? Color.red : Color.green);
         ToggleMenuButton(false);
         ToggleResolutionButton(false);
-        WristTracker.SetActive(false);
+        if (WristTracker != null)
+            WristTracker.SetActive(false);
     }
 
     // Function to serialize the Vector3 List
@@ -357,14 +369,14 @@ class GestureDetector : MonoBehaviour
 
             else 
             {   
-                client2.SendFrame("None"); 
-                Debug.Log("No button was pressed");
+                client2.SendFrame("None");
 
             }
         }
         else
         {
-            client2.SendFrame("None");
+            if (client2 != null)
+                client2.SendFrame("None");
         }
     }
 
@@ -519,7 +531,8 @@ class GestureDetector : MonoBehaviour
         
         } else
         {
-            StreamBorder.color = Color.red;
+            if (StreamBorder != null)
+                StreamBorder.color = Color.red;
             ToggleMenuButton(true);
             CreateTCPConnection();     
         }
