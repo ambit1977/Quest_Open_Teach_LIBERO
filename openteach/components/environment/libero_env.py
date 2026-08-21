@@ -217,10 +217,10 @@ class LiberoEnv(Arm_Env):
 			self.rgb_publisher_ego = ZMQCameraPublisher(self.host, self.camport + 1)
 		if self._stream_oculus:
 			self.rgb_viz_publisher = ZMQCompressedImageTransmitter(
-				self.host, self.camport + VIZ_PORT_OFFSET, jpeg_quality=45,
+				self.host, self.camport + VIZ_PORT_OFFSET, jpeg_quality=70,
 			)
 			self.rgb_viz_publisher_ego = ZMQCompressedImageTransmitter(
-				self.host, self.camport + VIZ_PORT_OFFSET + 1, jpeg_quality=40,
+				self.host, self.camport + VIZ_PORT_OFFSET + 1, jpeg_quality=65,
 			)
 		if self.publish_depth:
 			self.depth_publisher = ZMQCameraPublisher(
