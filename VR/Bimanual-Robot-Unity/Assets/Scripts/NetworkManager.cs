@@ -214,14 +214,11 @@ public class NetworkManager : MonoBehaviour
                     + "\",\"command\":\"discover\",\"stage\":3}";
                 byte[] data = Encoding.UTF8.GetBytes(payload);
 
-                // A configured Mac is authoritative. Broadcasting as well let
-                // an unrelated / stale launcher win the response race and
-                // overwrite 192.168.1.34 with 192.168.1.18.
+                // Broadcast discovers the Mac after DHCP changes its address.
+                client.Send(data, data.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort));
                 if (!String.IsNullOrWhiteSpace(configuredAddress) &&
                     IPAddress.TryParse(configuredAddress, out IPAddress configuredIP))
                     client.Send(data, data.Length, new IPEndPoint(configuredIP, DiscoveryPort));
-                else
-                    client.Send(data, data.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort));
 
                 IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
                 byte[] response = client.Receive(ref remote);

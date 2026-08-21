@@ -39,6 +39,9 @@ class TeleopLauncher:
 
         child_environment = os.environ.copy()
         child_environment["PYTHONWARNINGS"] = "ignore"
+        # Never pass a DHCP address cached when this long-lived launchd agent
+        # originally started. macos_env.sh resolves the current interface.
+        child_environment.pop("OPENTEACH_HOST", None)
         self.process = subprocess.Popen(
             [str(RUN_SCRIPT), str(stage)],
             cwd=PROJECT_DIR,

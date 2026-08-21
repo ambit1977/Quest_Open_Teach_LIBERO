@@ -16,8 +16,13 @@ export LIBERO_ROOT="$PARC_UPSTREAM/LIBERO-plus"
 export PYTHONPATH="$PROJECT_DIR:$LIBERO_ROOT:$PARC_UPSTREAM/venv/lib/python3.10/site-packages${PYTHONPATH:+:$PYTHONPATH}"
 export MUJOCO_GL=${MUJOCO_GL:-glfw}
 
-if [[ -z ${OPENTEACH_HOST:-} ]]; then
+if [[ -n ${OPENTEACH_HOST_OVERRIDE:-} ]]; then
+  export OPENTEACH_HOST="$OPENTEACH_HOST_OVERRIDE"
+else
+  # launchd can keep yesterday's DHCP address in its environment for days.
+  # Always refresh from the active default interface for each simulator start.
   DEFAULT_IFACE=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+  OPENTEACH_HOST=""
   if [[ -n "$DEFAULT_IFACE" ]]; then
     OPENTEACH_HOST=$(ipconfig getifaddr "$DEFAULT_IFACE" 2>/dev/null || true)
   fi
