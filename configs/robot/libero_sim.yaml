@@ -70,8 +70,9 @@ environment:
     camera_fps: 6
     telemetry_fps: 6
     action_timeout: 0.5
-    main_camera_resolution: 320
-    hand_camera_resolution: 192
+    main_camera_resolution: 256
+    hand_camera_resolution: 128
+    low_quality_rendering: true
     publish_recording_streams: false
     publish_depth: false
     # task_name: LIVING_ROOM_SCENE3_pick_up_the_cream_cheese_and_put_it_in_the_tray #KITCHEN_SCENE7_open_the_microwave

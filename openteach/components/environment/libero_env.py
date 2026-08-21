@@ -44,8 +44,9 @@ class LiberoEnv(Arm_Env):
 			 camera_fps=15,
 			 telemetry_fps=10,
 			 action_timeout=0.25,
-			 main_camera_resolution=320,
-			 hand_camera_resolution=192,
+			 main_camera_resolution=256,
+			 hand_camera_resolution=128,
+			 low_quality_rendering=True,
 			 publish_recording_streams=False,
 			 publish_depth=False,
 	):
@@ -56,6 +57,7 @@ class LiberoEnv(Arm_Env):
 		self.action_timeout = action_timeout
 		self.main_camera_resolution = main_camera_resolution
 		self.hand_camera_resolution = hand_camera_resolution
+		self.low_quality_rendering = low_quality_rendering
 		self.publish_recording_streams = publish_recording_streams
 		self.publish_depth = publish_depth
 		self._timer = FrequencyTimer(control_freq)
@@ -139,6 +141,17 @@ class LiberoEnv(Arm_Env):
 			camera_widths=main_camera_resolution,
 			control_freq=control_freq,
 		)
+		if self.low_quality_rendering:
+			# Quest teleoperation only needs a coarse operator preview. These
+			# settings affect off-screen pixels, never physics, IK, or collision.
+			quality = self.env.sim.model.vis.quality
+			quality.shadowsize = 0
+			quality.offsamples = 1
+			quality.numslices = 12
+			quality.numstacks = 8
+			quality.numquads = 1
+			self.env.sim.model.vis.global_.offwidth = main_camera_resolution
+			self.env.sim.model.vis.global_.offheight = main_camera_resolution
 		seed = np.random.randint(0, 100000)
 		self.env.seed(seed)
 		position = self.reset()
@@ -204,10 +217,10 @@ class LiberoEnv(Arm_Env):
 			self.rgb_publisher_ego = ZMQCameraPublisher(self.host, self.camport + 1)
 		if self._stream_oculus:
 			self.rgb_viz_publisher = ZMQCompressedImageTransmitter(
-				self.host, self.camport + VIZ_PORT_OFFSET, jpeg_quality=60,
+				self.host, self.camport + VIZ_PORT_OFFSET, jpeg_quality=45,
 			)
 			self.rgb_viz_publisher_ego = ZMQCompressedImageTransmitter(
-				self.host, self.camport + VIZ_PORT_OFFSET + 1, jpeg_quality=55,
+				self.host, self.camport + VIZ_PORT_OFFSET + 1, jpeg_quality=40,
 			)
 		if self.publish_depth:
 			self.depth_publisher = ZMQCameraPublisher(

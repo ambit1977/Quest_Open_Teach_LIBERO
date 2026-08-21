@@ -134,10 +134,10 @@ public class CameraOneStreamer : MonoBehaviour
             yield return null;
 
         // Initializing the image texture
-        texture = new Texture2D(320, 320, TextureFormat.RGB24, false);
+        texture = new Texture2D(256, 256, TextureFormat.RGB24, false);
         image.texture = texture;
         CreateHandCameraOverlay();
-        handTexture = new Texture2D(192, 192, TextureFormat.RGB24, false);
+        handTexture = new Texture2D(128, 128, TextureFormat.RGB24, false);
         handImage.texture = handTexture;
     }
 
