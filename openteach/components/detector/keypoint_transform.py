@@ -8,7 +8,7 @@ from openteach.utils.timer import FrequencyTimer
 
 class TransformHandPositionCoords(Component):
     def __init__(self, host, keypoint_port, transformation_port,moving_average_limit = 5,
-                 controller_mode=False):
+                 controller_mode=False, frequency=VR_FREQ):
         self.notify_component_start('keypoint position transform')
         
         # Initializing the subscriber for right hand keypoints
@@ -16,7 +16,7 @@ class TransformHandPositionCoords(Component):
         # Initializing the publisher for transformed right hand keypoints
         self.transformed_keypoint_publisher = ZMQKeypointPublisher(host, transformation_port)
         # Timer
-        self.timer = FrequencyTimer(VR_FREQ)
+        self.timer = FrequencyTimer(frequency)
         # Keypoint indices for knuckles
         self.knuckle_points = (OCULUS_JOINTS['knuckles'][0], OCULUS_JOINTS['knuckles'][-1])
         # Moving average queue

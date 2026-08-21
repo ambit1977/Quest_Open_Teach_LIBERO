@@ -16,7 +16,7 @@ public class CameraOneStreamer : MonoBehaviour
     private byte[] latestHandImage;
     private volatile bool receiveRunning;
     private float nextTextureUpdate;
-    private const float TextureUpdateInterval = 1f / 15f;
+    private const float TextureUpdateInterval = 1f / 6f;
 
     public RawImage image;
     private RawImage handImage;

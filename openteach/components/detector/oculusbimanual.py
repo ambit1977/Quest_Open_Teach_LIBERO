@@ -16,6 +16,7 @@ class OculusVRTwoHandDetector(Component):
                  teleop_reset_port,
                  teleop_reset_publish_port,
                  single_controller=False,
+                 frequency=VR_FREQ,
     ):
         self.notify_component_start('vr detector')
         # Initializing the network socket for getting the raw keypoints
@@ -45,7 +46,7 @@ class OculusVRTwoHandDetector(Component):
             host=host,
             port=teleop_reset_publish_port,
         )
-        self.timer = FrequencyTimer(VR_FREQ)
+        self.timer = FrequencyTimer(frequency)
 
 
     # Function to process the data token received from the VR
@@ -109,7 +110,7 @@ class OculusVRTwoHandDetector(Component):
 
                 if self.single_controller:
                     # B is sent as an edge event. Poll it without making the
-                    # 60 Hz pose path wait for a separate status packet.
+                    # The pose path must not wait for a separate status packet.
                     try:
                         reset_feedback = self.teleop_reset_socket.recv(zmq.NOBLOCK)
                     except zmq.Again:

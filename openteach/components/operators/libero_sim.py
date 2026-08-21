@@ -48,6 +48,7 @@ class LiberoSimOperator(Operator):
 		arm_resolution_port = None,
 		teleop_reset_port = None,
 		actualjointanglesubscribeport = None,
+		frequency = VR_FREQ,
 	):
 		self.notify_component_start('libero operator')
 		self._host, self._port = host, transformed_keypoints_port
@@ -120,12 +121,12 @@ class LiberoSimOperator(Operator):
 
 		self._stream_oculus=stream_oculus
 		self.stream_configs=stream_configs
-		self._timer = FrequencyTimer(VR_FREQ)
+		self._timer = FrequencyTimer(frequency)
 		self._robot='Libero_Sim'
 		self.is_first_frame = True
 		
 		# Frequency timer
-		self._timer = FrequencyTimer(VR_FREQ)
+		self._timer = FrequencyTimer(frequency)
 		self.direction_counter = 0
 		self.current_direction = 0
 		# Moving average queues

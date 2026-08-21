@@ -239,14 +239,16 @@ class LiberoEnv(Arm_Env):
 		try:
 			while not self._stop_event.is_set():
 				with self._frame_condition:
-					self._frame_condition.wait_for(
+					frame_changed = self._frame_condition.wait_for(
 						lambda: self._stop_event.is_set()
 						or self._camera_sequence != last_sequence,
 						timeout=0.1,
 					)
 					if self._stop_event.is_set():
 						break
-					if self._latest_camera_frame is None:
+					# A timeout is not a new frame. Re-sending the cached JPEG
+					# doubled low-rate streams (6 Hz producer became ~12 Hz).
+					if not frame_changed or self._latest_camera_frame is None:
 						continue
 					frame = self._latest_camera_frame
 					last_sequence = self._camera_sequence

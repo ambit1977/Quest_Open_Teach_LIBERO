@@ -67,7 +67,7 @@ class GestureDetector : MonoBehaviour
     private GameObject rightControllerModel;
     private bool controllerPaused = true;
     private float nextControllerPacketTime;
-    private const float ControllerPacketInterval = 1f / 60f;
+    private const float ControllerPacketInterval = 1f / 6f;
     // Starting the server connection
     public void CreateTCPConnection()
      {

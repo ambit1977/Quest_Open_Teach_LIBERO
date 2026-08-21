@@ -12,6 +12,7 @@ detector:
   teleop_reset_port: ${teleop_reset_port}
   teleop_reset_publish_port: ${teleop_reset_publish_port}
   single_controller: true
+  frequency: 6
   
 
 
@@ -24,6 +25,7 @@ transforms:
     transformation_port: ${transformed_position_keypoint_port}
     moving_average_limit: 1
     controller_mode: true
+    frequency: 6
 
 
 # Visualizers used to visualize the keypoints stream
@@ -48,6 +50,7 @@ operators:
     teleop_reset_port: ${teleop_reset_publish_port}
     moving_average_limit: 3
     arm_resolution_port: ${resolution_button_publish_port} 
+    frequency: 6
 
 
 environment:
@@ -63,10 +66,10 @@ environment:
     teleop_reset_port: ${teleop_reset_publish_port}
     stream_oculus: true
     suite_name: libero_90
-    control_freq: 20
-    camera_fps: 15
-    telemetry_fps: 10
-    action_timeout: 0.25
+    control_freq: 6
+    camera_fps: 6
+    telemetry_fps: 6
+    action_timeout: 0.5
     main_camera_resolution: 320
     hand_camera_resolution: 192
     publish_recording_streams: false
