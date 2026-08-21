@@ -47,6 +47,7 @@ class LiberoSimOperator(Operator):
 		moving_average_limit,
 		arm_resolution_port = None,
 		teleop_reset_port = None,
+		actualjointanglesubscribeport = None,
 	):
 		self.notify_component_start('libero operator')
 		self._host, self._port = host, transformed_keypoints_port
@@ -103,6 +104,13 @@ class LiberoSimOperator(Operator):
 			port=teleop_reset_port,
 			topic='reset',
 		)
+		self.joint_angles_subscriber = None
+		if actualjointanglesubscribeport is not None:
+			self.joint_angles_subscriber = ZMQKeypointSubscriber(
+				host=host,
+				port=actualjointanglesubscribeport,
+				topic='joint_angles',
+			)
 
 		# Calibrating to get the thumb bounds
 		self._calibrate_bounds()
@@ -129,6 +137,28 @@ class LiberoSimOperator(Operator):
 		self.position_servo_gain = 10.0
 		self.controller_orientation_gain = 1.0
 		self.max_orientation_step = 0.12
+		# Automatic clutch / anti-windup. If the requested pose remains far
+		# from the actual end effector while the Panda is stalled at a joint
+		# limit or saturated command, re-anchor controller and robot poses.
+		self.panda_joint_lower = np.array([
+			-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973,
+		])
+		self.panda_joint_upper = np.array([
+			2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973,
+		])
+		self.joint_limit_margin = 0.05
+		self.rebase_position_error = 0.04
+		self.rebase_rotation_error = np.deg2rad(15.0)
+		self.rebase_motion_epsilon = 0.0007
+		self.rebase_rotation_motion_epsilon = np.deg2rad(0.25)
+		self.rebase_required_frames = max(1, int(0.30 * VR_FREQ))
+		self.rebase_cooldown_frames = VR_FREQ
+		self.constraint_frames = 0
+		self.rebase_cooldown = 0
+		self.previous_robot_position = None
+		self.previous_robot_rotation = None
+		self.latest_joint_angles = None
+		self.auto_rebase_count = 0
 		# The received hand-frame axes are ordered differently from the
 		# Panda yaw/pitch/roll convention observed in the Quest view. Remap
 		# [current roll, current pitch, current yaw] to [yaw, pitch, roll].
@@ -208,6 +238,57 @@ class LiberoSimOperator(Operator):
 		homo[3,:] = np.array([0,0,0,1])
 		return homo
 
+	def _joint_near_limit(self, joint_angles):
+		if joint_angles is None:
+			return False
+		joint_angles = np.asanyarray(joint_angles, dtype=np.float64).reshape(-1)[:7]
+		if joint_angles.size != 7:
+			return False
+		joint_range = self.panda_joint_upper - self.panda_joint_lower
+		lower_margin = (joint_angles - self.panda_joint_lower) / joint_range
+		upper_margin = (self.panda_joint_upper - joint_angles) / joint_range
+		return bool(np.any(np.minimum(lower_margin, upper_margin) <= self.joint_limit_margin))
+
+	def _update_constraint_detector(
+		self,
+		position_error,
+		rotation_error,
+		robot_motion,
+		robot_rotation_motion,
+		near_joint_limit,
+		command_saturated,
+	):
+		if self.rebase_cooldown > 0:
+			self.rebase_cooldown -= 1
+			self.constraint_frames = 0
+			return False
+		large_error = (
+			position_error >= self.rebase_position_error
+			or rotation_error >= self.rebase_rotation_error
+		)
+		constrained = near_joint_limit or command_saturated
+		stalled = (
+			robot_motion <= self.rebase_motion_epsilon
+			and robot_rotation_motion <= self.rebase_rotation_motion_epsilon
+		)
+		if large_error and constrained and stalled:
+			self.constraint_frames += 1
+		else:
+			self.constraint_frames = 0
+		return self.constraint_frames >= self.rebase_required_frames
+
+	def _auto_rebase(self, current_robot_H, moving_hand_frame, current_hand_rotation):
+		self.robot_init_H = copy(current_robot_H)
+		self.robot_moving_H = copy(current_robot_H)
+		self.controller_init_position = copy(moving_hand_frame[0])
+		self.controller_init_rotation = copy(current_hand_rotation)
+		self.moving_Average_queue.clear()
+		self.constraint_frames = 0
+		self.rebase_cooldown = self.rebase_cooldown_frames
+		self.previous_robot_position = copy(current_robot_H[:3, 3])
+		self.previous_robot_rotation = copy(current_robot_H[:3, :3])
+		self.auto_rebase_count += 1
+
 	# Get the scaled cartesian pose	
 	def _get_scaled_cart_pose(self, moving_robot_homo_mat):
 		# Get the cart pose without the scaling
@@ -238,6 +319,9 @@ class LiberoSimOperator(Operator):
 		self.robot_frame=self.end_eff_position_subscriber.recv_keypoints()
 		self.robot_init_H=self.cart2homo(self.robot_frame[2:])
 		self.robot_moving_H = copy(self.robot_init_H)
+		self.previous_robot_position = copy(self.robot_init_H[:3, 3])
+		self.previous_robot_rotation = copy(self.robot_init_H[:3, :3])
+		self.constraint_frames = 0
 
 		first_hand_frame = self._get_hand_frame()
 		while first_hand_frame is None:
@@ -308,6 +392,10 @@ class LiberoSimOperator(Operator):
 			self.arm_teleop_state = ARM_TELEOP_STOP
 			self.is_first_frame = True
 			self.moving_Average_queue.clear()
+			self.constraint_frames = 0
+			self.rebase_cooldown = 0
+			self.previous_robot_position = None
+			self.previous_robot_rotation = None
 			self.end_eff_position_publisher.pub_keypoints(
 				np.zeros(7),
 				"endeff_coords",
@@ -361,6 +449,22 @@ class LiberoSimOperator(Operator):
 		current_robot_frame = np.asanyarray(current_robot_frame)
 		current_robot_H = self.cart2homo(current_robot_frame[2:])
 		current_position = current_robot_H[:3, 3]
+		robot_motion = (
+			np.inf
+			if self.previous_robot_position is None
+			else np.linalg.norm(current_position - self.previous_robot_position)
+		)
+		robot_rotation_motion = (
+			np.inf
+			if self.previous_robot_rotation is None
+			else np.linalg.norm(
+				Rotation.from_matrix(
+					current_robot_H[:3, :3] @ self.previous_robot_rotation.T
+				).as_rotvec()
+			)
+		)
+		self.previous_robot_position = copy(current_position)
+		self.previous_robot_rotation = copy(current_robot_H[:3, :3])
 		rel_pos = (
 			(target_position - current_position)
 			* self.position_servo_gain
@@ -384,6 +488,42 @@ class LiberoSimOperator(Operator):
 		rel_axis_angle = Rotation.from_matrix(rel_rotation).as_rotvec()
 		rel_axis_angle *= self.controller_orientation_gain
 		angle = np.linalg.norm(rel_axis_angle)
+		command_saturated = bool(
+			np.any(np.abs(rel_pos) >= 0.95)
+			or angle > self.max_orientation_step
+		)
+		if self.joint_angles_subscriber is not None:
+			joint_angles = self.joint_angles_subscriber.recv_keypoints(flags=zmq.NOBLOCK)
+			if joint_angles is not None:
+				self.latest_joint_angles = joint_angles
+		near_joint_limit = self._joint_near_limit(self.latest_joint_angles)
+		position_error = np.linalg.norm(target_position - current_position)
+		if (
+			self.arm_teleop_state == ARM_TELEOP_CONT
+			and self._update_constraint_detector(
+				position_error,
+				angle,
+				robot_motion,
+				robot_rotation_motion,
+				near_joint_limit,
+				command_saturated,
+			)
+		):
+			self._auto_rebase(current_robot_H, moving_hand_frame, current_hand_rotation)
+			print(
+				"AUTO_REBASE "
+				f"count={self.auto_rebase_count} "
+				f"position_error={position_error:.3f} "
+				f"rotation_error_deg={np.rad2deg(angle):.1f} "
+				f"near_joint_limit={near_joint_limit} "
+				f"command_saturated={command_saturated}",
+				flush=True,
+			)
+			self.end_eff_position_publisher.pub_keypoints(
+				np.concatenate([np.zeros(6), [gripper_state]]),
+				"endeff_coords",
+			)
+			return
 		if angle > self.max_orientation_step:
 			rel_axis_angle *= self.max_orientation_step / angle
 		action = np.concatenate([rel_pos, rel_axis_angle, [gripper_state]])

@@ -16,6 +16,19 @@ Open Teach consists of two parts.
 
 Read VR specific information, User Interface and APK files [here](/docs/vr.md)
 
+#### Quest controller clutch and automatic rebase
+
+The LIBERO controller uses the right Touch controller as a relative 6-DoF
+end-effector target. Press **A** to pause or resume control; resuming manually
+re-anchors the current Touch pose to the Panda's current end-effector pose.
+
+An automatic anti-windup rebase is also enabled. If the requested pose remains
+outside the Panda's reachable motion for about 0.3 seconds, the controller and
+actual end-effector poses are re-anchored without moving the arm. Detection
+requires a meaningful pose error, stalled translation and rotation, and either
+a near-limit Panda joint or a saturated Cartesian command. This prevents the
+virtual target from continuing to accumulate beyond the robot's constraints.
+
 ### Server Code Installation 
 
 Install the conda environment from the yaml file in the codebase
@@ -74,6 +87,5 @@ If you use this repo in your research, please consider citing the paper as follo
       archivePrefix={arXiv},
       primaryClass={cs.RO}
 }
-
 
 

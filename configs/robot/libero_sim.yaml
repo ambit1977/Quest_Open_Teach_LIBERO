@@ -46,6 +46,7 @@ operators:
     endeff_publish_port: 10010
     endeffpossubscribeport: 10009
     robotposesubscribeport: 11111
+    actualjointanglesubscribeport: 10011
     teleop_reset_port: ${teleop_reset_publish_port}
     moving_average_limit: 3
     arm_resolution_port: ${resolution_button_publish_port} 
